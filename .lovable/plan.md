@@ -1,78 +1,94 @@
 
-# Suportfy WhatsApp — Sistema de Atendimento via WhatsApp
 
-## Visão Geral
-Sistema completo de atendimento ao cliente via WhatsApp, com IA (Sophia), integração Z-API, Shopify e interface estilo chat WhatsApp.
+# Production Readiness — Suportfy WhatsApp
+
+## Overview
+7 changes to make the system production-ready: Realtime, CRON scheduler, enhanced customer sidebar, ticket close/reopen, Z-API connection verification, webhook setup instructions, and typing indicator.
 
 ---
 
-## Fase 1: Banco de Dados e Autenticação
+## 1. Enable Realtime on tables
 
-- Habilitar Lovable Cloud (auth + banco)
-- Criar todas as tabelas: `stores`, `settings`, `tickets`, `messages`, `auto_reply_queue`, `customer_memory`, `requests`
-- Criar tabela `user_roles` para controle de acesso
-- Ativar RLS em todas as tabelas com políticas baseadas em `store_id` + `user_id`
-- Criar view segura para `settings` (ocultar API keys sensíveis em SELECT direto)
+**Migration SQL:**
+```sql
+ALTER PUBLICATION supabase_realtime ADD TABLE tickets;
+ALTER PUBLICATION supabase_realtime ADD TABLE messages;
+```
 
-## Fase 2: Edge Functions
+The Tickets page already has realtime subscriptions in place — no frontend changes needed for this step.
 
-### `process-inbound-whatsapp`
-- Webhook público que recebe mensagens da Z-API
-- Filtra `fromMe: true` e mensagens de grupo
-- Busca/cria ticket pelo phone + store
-- Salva mensagem inbound
-- Enfileira resposta automática se IA ativa
+## 2. CRON Scheduler via pg_cron
 
-### `whatsapp-reply-scheduler`
-- Processa fila `auto_reply_queue`
-- Busca histórico (últimas 10 msgs), memória do cliente, pedidos Shopify
-- Gera resposta via OpenAI ou Anthropic (configurável por loja)
-- Envia via Z-API (`send-text`)
-- Salva mensagem outbound + atualiza memória
+Enable `pg_cron` and `pg_net` extensions via migration, then use the **insert tool** (not migration) to schedule the job:
 
-### `send-whatsapp-reply`
-- Envio manual pelo atendente humano
-- Recebe `ticket_id`, `message`, `store_id`
-- Envia via Z-API e salva como outbound
+```sql
+CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA extensions;
+CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA extensions;
+```
 
-### `transcribe-audio`
-- Baixa áudio da URL Z-API
-- Transcreve via OpenAI Whisper
-- Salva transcrição como conteúdo da mensagem
+Then insert the cron job calling `whatsapp-reply-scheduler` every minute using the project's URL and anon key.
 
-## Fase 3: Interface — Layout e Navegação
+## 3. Enhanced Customer Sidebar (Tickets page)
 
-- Layout com sidebar fixa: Tickets, Agente IA, Solicitações, Analytics, Configurações
-- `StoreSwitcher` no topo para alternar entre lojas
-- Autenticação com login/signup
+Expand the right panel to fetch and display `customer_memory` data:
+- Total interactions count
+- Last sentiment with emoji
+- Customer notes
+- Preferred language
+- "Pedidos Shopify" section (placeholder — requires a `get-shopify-customer-orders` edge function to be built later, or uses existing Shopify integration data)
 
-## Fase 4: Página de Tickets (principal)
+Fetch memory on ticket selection: `supabase.from("customer_memory").select("*").eq("store_id", ...).eq("customer_phone", ...).maybeSingle()`
 
-- **Painel esquerdo**: lista de tickets com avatar (inicial do nome), phone, última mensagem, horário, badge de sentimento (😊😐😤😡), filtros (Todos/Abertos/Fechados)
-- **Painel central**: área de conversa estilo WhatsApp — bolhas cinza (inbound) e verdes (outbound), suporte a imagens, áudio (player), documentos. Campo de resposta manual + botão "Gerar Resposta IA"
-- **Painel direito**: info do cliente (nome, phone, sentimento, histórico) + pedidos Shopify vinculados
+## 4. Close/Reopen Ticket Buttons
 
-## Fase 5: Página de Configurações
+Add to the ticket header bar:
+- If `open`: "Fechar ticket" button with `CheckCircle` icon
+- If `closed`: "Reabrir" button with `RefreshCw` icon
+- Updates ticket status via `supabase.from("tickets").update({ status })` and refetches
 
-- **Z-API**: campos Instance ID, Token, Client Token + botão "Verificar Conexão" + exibição da URL do webhook para copiar
-- **Provedor IA**: dropdown OpenAI/Anthropic + API key + modelo + verificar
-- **Agente IA**: toggle ativar/desativar + delay (segundos) + system prompt editável
-- **Shopify**: URL da loja + Client ID + Client Secret
+## 5. Edge Function: `verify-zapi-connection`
 
-## Fase 6: Página Agente IA
+Create `supabase/functions/verify-zapi-connection/index.ts`:
+- Receives `{ instance_id, token, client_token }`
+- Calls Z-API status endpoint: `GET https://api.z-api.io/instances/{id}/token/{token}/status`
+- Returns `{ success: true/false, message }`
+- Includes CORS headers
 
-- Score médio de qualidade das respostas
-- Toggle ativo/inativo
-- System prompt atual com controle de versão
-- Sugestões de melhoria pendentes
+**Settings page**: Add "Verificar Conexão" button in the Z-API card that invokes this function and shows a toast with the result.
 
-## Fase 7: Páginas Complementares
+## 6. Webhook Setup Instructions
 
-- **Solicitações**: lista de requests (reembolsos, trocas, etc.) extraídos das conversas
-- **Analytics**: métricas básicas — tickets abertos/fechados, tempo médio de resposta, sentimento geral
+Add an instructional card below the webhook URL field in Settings:
 
-## Detalhes Técnicos
+```
+Como configurar:
+1. Acesse o painel da Z-API
+2. Vá em sua instância > Webhooks
+3. Em "Ao receber mensagem", cole a URL acima
+4. Clique em Salvar
+5. Volte aqui e clique em Verificar Conexão
+```
 
-- System prompt padrão da Sophia (versão WhatsApp BR) embutido como default
-- API keys da Z-API, OpenAI e Anthropic armazenadas por loja na tabela `settings`
-- Realtime do Supabase para atualizar tickets e mensagens em tempo real na interface
+Styled as a muted info card with an `Info` icon.
+
+## 7. Typing Indicator in Scheduler
+
+Update `whatsapp-reply-scheduler/index.ts` to add typing simulation before sending:
+1. Call Z-API `send-chat-state` with `chatState: "composing"`
+2. Wait `ai_response_delay` seconds
+3. Send the AI message
+4. Call `send-chat-state` with `chatState: "paused"`
+
+---
+
+## Files Modified/Created
+
+| File | Action |
+|------|--------|
+| `supabase/migrations/...` | New migration: realtime + pg_cron/pg_net extensions |
+| SQL insert (non-migration) | CRON job schedule |
+| `src/pages/Tickets.tsx` | Customer sidebar enhancement + close/reopen buttons |
+| `src/pages/Settings.tsx` | Verify connection button + webhook instructions card |
+| `supabase/functions/verify-zapi-connection/index.ts` | New edge function |
+| `supabase/functions/whatsapp-reply-scheduler/index.ts` | Add typing indicator logic |
+

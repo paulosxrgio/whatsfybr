@@ -1,0 +1,4 @@
+ALTER PUBLICATION supabase_realtime ADD TABLE tickets;
+ALTER PUBLICATION supabase_realtime ADD TABLE messages;
+CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA extensions;
+CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA extensions;

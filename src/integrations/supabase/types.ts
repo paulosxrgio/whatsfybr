@@ -14,16 +14,358 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      auto_reply_queue: {
+        Row: {
+          created_at: string | null
+          id: string
+          scheduled_for: string | null
+          status: string | null
+          store_id: string
+          ticket_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          scheduled_for?: string | null
+          status?: string | null
+          store_id: string
+          ticket_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          scheduled_for?: string | null
+          status?: string | null
+          store_id?: string
+          ticket_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "auto_reply_queue_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "stores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "auto_reply_queue_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "tickets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_memory: {
+        Row: {
+          customer_name: string | null
+          customer_phone: string
+          id: string
+          last_sentiment: string | null
+          notes: string | null
+          preferred_language: string | null
+          store_id: string
+          total_interactions: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          customer_name?: string | null
+          customer_phone: string
+          id?: string
+          last_sentiment?: string | null
+          notes?: string | null
+          preferred_language?: string | null
+          store_id: string
+          total_interactions?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          customer_name?: string | null
+          customer_phone?: string
+          id?: string
+          last_sentiment?: string | null
+          notes?: string | null
+          preferred_language?: string | null
+          store_id?: string
+          total_interactions?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_memory_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      messages: {
+        Row: {
+          content: string | null
+          created_at: string | null
+          direction: string
+          id: string
+          media_url: string | null
+          message_type: string | null
+          store_id: string
+          ticket_id: string
+          zapi_message_id: string | null
+        }
+        Insert: {
+          content?: string | null
+          created_at?: string | null
+          direction: string
+          id?: string
+          media_url?: string | null
+          message_type?: string | null
+          store_id: string
+          ticket_id: string
+          zapi_message_id?: string | null
+        }
+        Update: {
+          content?: string | null
+          created_at?: string | null
+          direction?: string
+          id?: string
+          media_url?: string | null
+          message_type?: string | null
+          store_id?: string
+          ticket_id?: string
+          zapi_message_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "messages_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "stores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "messages_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "tickets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      requests: {
+        Row: {
+          created_at: string | null
+          customer_name: string | null
+          customer_phone: string | null
+          description: string | null
+          details: Json | null
+          id: string
+          status: string | null
+          store_id: string
+          ticket_id: string
+          type: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          customer_name?: string | null
+          customer_phone?: string | null
+          description?: string | null
+          details?: Json | null
+          id?: string
+          status?: string | null
+          store_id: string
+          ticket_id: string
+          type?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          customer_name?: string | null
+          customer_phone?: string | null
+          description?: string | null
+          details?: Json | null
+          id?: string
+          status?: string | null
+          store_id?: string
+          ticket_id?: string
+          type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "requests_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "stores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "requests_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "tickets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      settings: {
+        Row: {
+          ai_is_active: boolean | null
+          ai_model: string | null
+          ai_provider: string | null
+          ai_response_delay: number | null
+          ai_system_prompt: string | null
+          anthropic_api_key: string | null
+          created_at: string | null
+          id: string
+          openai_api_key: string | null
+          shopify_client_id: string | null
+          shopify_client_secret: string | null
+          shopify_store_url: string | null
+          store_id: string
+          zapi_client_token: string | null
+          zapi_instance_id: string | null
+          zapi_token: string | null
+        }
+        Insert: {
+          ai_is_active?: boolean | null
+          ai_model?: string | null
+          ai_provider?: string | null
+          ai_response_delay?: number | null
+          ai_system_prompt?: string | null
+          anthropic_api_key?: string | null
+          created_at?: string | null
+          id?: string
+          openai_api_key?: string | null
+          shopify_client_id?: string | null
+          shopify_client_secret?: string | null
+          shopify_store_url?: string | null
+          store_id: string
+          zapi_client_token?: string | null
+          zapi_instance_id?: string | null
+          zapi_token?: string | null
+        }
+        Update: {
+          ai_is_active?: boolean | null
+          ai_model?: string | null
+          ai_provider?: string | null
+          ai_response_delay?: number | null
+          ai_system_prompt?: string | null
+          anthropic_api_key?: string | null
+          created_at?: string | null
+          id?: string
+          openai_api_key?: string | null
+          shopify_client_id?: string | null
+          shopify_client_secret?: string | null
+          shopify_store_url?: string | null
+          store_id?: string
+          zapi_client_token?: string | null
+          zapi_instance_id?: string | null
+          zapi_token?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "settings_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: true
+            referencedRelation: "stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      stores: {
+        Row: {
+          created_at: string | null
+          id: string
+          name: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          name: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      tickets: {
+        Row: {
+          created_at: string | null
+          customer_name: string | null
+          customer_phone: string
+          id: string
+          last_message_at: string | null
+          sentiment: string | null
+          status: string | null
+          store_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          customer_name?: string | null
+          customer_phone: string
+          id?: string
+          last_message_at?: string | null
+          sentiment?: string | null
+          status?: string | null
+          store_id: string
+        }
+        Update: {
+          created_at?: string | null
+          customer_name?: string | null
+          customer_phone?: string
+          id?: string
+          last_message_at?: string | null
+          sentiment?: string | null
+          status?: string | null
+          store_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tickets_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_roles: {
+        Row: {
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
+      user_store_ids: { Args: never; Returns: string[] }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "moderator" | "user"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +492,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "moderator", "user"],
+    },
   },
 } as const

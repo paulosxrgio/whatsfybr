@@ -1,0 +1,137 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  try {
+    const url = new URL(req.url);
+    const storeId = url.searchParams.get("store_id");
+
+    if (!storeId) {
+      return new Response(JSON.stringify({ error: "store_id required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    const body = await req.json();
+
+    // Ignore fromMe and group messages
+    if (body.fromMe === true || body.isGroup === true) {
+      return new Response(JSON.stringify({ ok: true, skipped: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    const phone = body.phone;
+    const senderName = body.senderName || null;
+    const messageText = body.text?.message || body.text || "";
+    const messageType = body.type === "ReceivedCallback" ? "text" : (body.image ? "image" : body.audio ? "audio" : body.document ? "document" : "text");
+    const mediaUrl = body.image?.imageUrl || body.audio?.audioUrl || body.document?.documentUrl || null;
+    const zapiMessageId = body.messageId || null;
+
+    if (!phone) {
+      return new Response(JSON.stringify({ error: "phone required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+
+    // Find or create ticket
+    let { data: ticket } = await supabase
+      .from("tickets")
+      .select("*")
+      .eq("store_id", storeId)
+      .eq("customer_phone", phone)
+      .eq("status", "open")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!ticket) {
+      const { data: newTicket, error } = await supabase.from("tickets").insert({
+        store_id: storeId,
+        customer_phone: phone,
+        customer_name: senderName,
+        status: "open",
+        sentiment: "neutral",
+      }).select().single();
+
+      if (error) throw error;
+      ticket = newTicket;
+    } else if (senderName && !ticket.customer_name) {
+      await supabase.from("tickets").update({ customer_name: senderName }).eq("id", ticket.id);
+    }
+
+    // Update last_message_at
+    await supabase.from("tickets").update({ last_message_at: new Date().toISOString() }).eq("id", ticket.id);
+
+    // Save inbound message
+    const content = messageType === "audio" ? "[Áudio]" : messageText;
+    await supabase.from("messages").insert({
+      ticket_id: ticket.id,
+      store_id: storeId,
+      content,
+      direction: "inbound",
+      message_type: messageType,
+      media_url: mediaUrl,
+      zapi_message_id: zapiMessageId,
+    });
+
+    // Update customer memory
+    await supabase.from("customer_memory").upsert({
+      store_id: storeId,
+      customer_phone: phone,
+      customer_name: senderName,
+      total_interactions: 1,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "store_id,customer_phone" });
+
+    // Check if AI is active and enqueue
+    const { data: settings } = await supabase
+      .from("settings")
+      .select("ai_is_active, ai_response_delay")
+      .eq("store_id", storeId)
+      .maybeSingle();
+
+    if (settings?.ai_is_active) {
+      const delay = settings.ai_response_delay || 2;
+      const scheduledFor = new Date(Date.now() + delay * 1000).toISOString();
+      await supabase.from("auto_reply_queue").insert({
+        ticket_id: ticket.id,
+        store_id: storeId,
+        status: "pending",
+        scheduled_for: scheduledFor,
+      });
+    }
+
+    // If audio, trigger transcription
+    if (messageType === "audio" && mediaUrl) {
+      try {
+        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/transcribe-audio`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({ ticket_id: ticket.id, store_id: storeId, audio_url: mediaUrl }),
+        });
+      } catch (e) {
+        console.error("Transcription trigger failed:", e);
+      }
+    }
+
+    return new Response(JSON.stringify({ ok: true, ticket_id: ticket.id }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  } catch (e) {
+    console.error("process-inbound error:", e);
+    return new Response(JSON.stringify({ error: e.message }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+});

@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Copy, CheckCircle, Loader2 } from "lucide-react";
+import { Copy, CheckCircle, Loader2, Info, Wifi } from "lucide-react";
 
 const DEFAULT_SYSTEM_PROMPT = `Você é Sophia, atendente de suporte da loja via WhatsApp.
 
@@ -57,6 +57,7 @@ const SettingsPage = () => {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [verifying, setVerifying] = useState(false);
 
   useEffect(() => {
     if (!currentStore) return;
@@ -109,6 +110,33 @@ const SettingsPage = () => {
     setSaving(false);
   };
 
+  const handleVerifyZapi = async () => {
+    if (!settings) return;
+    if (!settings.zapi_instance_id || !settings.zapi_token) {
+      toast.error("Preencha o Instance ID e o Token primeiro.");
+      return;
+    }
+    setVerifying(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("verify-zapi-connection", {
+        body: {
+          instance_id: settings.zapi_instance_id,
+          token: settings.zapi_token,
+          client_token: settings.zapi_client_token,
+        },
+      });
+      if (error) throw error;
+      if (data?.success) {
+        toast.success(data.message);
+      } else {
+        toast.error(data?.error || "Falha na verificação.");
+      }
+    } catch {
+      toast.error("Erro ao verificar conexão Z-API.");
+    }
+    setVerifying(false);
+  };
+
   const webhookUrl = currentStore
     ? `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/process-inbound-whatsapp?store_id=${currentStore.id}`
     : "";
@@ -151,6 +179,26 @@ const SettingsPage = () => {
               </Button>
             </div>
           </div>
+
+          {/* Webhook Instructions */}
+          <div className="rounded-lg border bg-muted/50 p-4 space-y-2">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Info className="h-4 w-4 text-primary" />
+              Como configurar o Webhook
+            </div>
+            <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
+              <li>Acesse o painel da Z-API</li>
+              <li>Vá em sua instância → Webhooks</li>
+              <li>Em "Ao receber mensagem", cole a URL acima</li>
+              <li>Clique em Salvar</li>
+              <li>Volte aqui e clique em <strong>Verificar Conexão</strong></li>
+            </ol>
+          </div>
+
+          <Button variant="outline" onClick={handleVerifyZapi} disabled={verifying} className="w-full">
+            {verifying ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Wifi className="h-4 w-4 mr-2" />}
+            Verificar Conexão
+          </Button>
         </CardContent>
       </Card>
 

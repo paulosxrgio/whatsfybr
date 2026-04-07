@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Bot, Search, Phone, User } from "lucide-react";
+import { Send, Bot, Search, Phone, CheckCircle, RefreshCw, Globe, StickyNote, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
@@ -32,6 +32,15 @@ type Message = {
   created_at: string | null;
 };
 
+type CustomerMemory = {
+  customer_name: string | null;
+  customer_phone: string;
+  total_interactions: number | null;
+  last_sentiment: string | null;
+  preferred_language: string | null;
+  notes: string | null;
+};
+
 const sentimentEmoji: Record<string, string> = {
   positive: "😊",
   neutral: "😐",
@@ -48,22 +57,25 @@ const TicketsPage = () => {
   const [filter, setFilter] = useState<"all" | "open" | "closed">("all");
   const [search, setSearch] = useState("");
   const [sending, setSending] = useState(false);
+  const [customerMemory, setCustomerMemory] = useState<CustomerMemory | null>(null);
+
+  const fetchTickets = async () => {
+    if (!currentStore) return;
+    let query = supabase
+      .from("tickets")
+      .select("*")
+      .eq("store_id", currentStore.id)
+      .order("last_message_at", { ascending: false });
+
+    if (filter === "open") query = query.eq("status", "open");
+    if (filter === "closed") query = query.eq("status", "closed");
+
+    const { data } = await query;
+    if (data) setTickets(data);
+  };
 
   useEffect(() => {
     if (!currentStore) return;
-    const fetchTickets = async () => {
-      let query = supabase
-        .from("tickets")
-        .select("*")
-        .eq("store_id", currentStore.id)
-        .order("last_message_at", { ascending: false });
-
-      if (filter === "open") query = query.eq("status", "open");
-      if (filter === "closed") query = query.eq("status", "closed");
-
-      const { data } = await query;
-      if (data) setTickets(data);
-    };
     fetchTickets();
 
     const channel = supabase
@@ -98,6 +110,24 @@ const TicketsPage = () => {
     return () => { supabase.removeChannel(channel); };
   }, [selectedTicket]);
 
+  // Fetch customer memory
+  useEffect(() => {
+    if (!selectedTicket || !currentStore) {
+      setCustomerMemory(null);
+      return;
+    }
+    const fetchMemory = async () => {
+      const { data } = await supabase
+        .from("customer_memory")
+        .select("*")
+        .eq("store_id", currentStore.id)
+        .eq("customer_phone", selectedTicket.customer_phone)
+        .maybeSingle();
+      setCustomerMemory(data as CustomerMemory | null);
+    };
+    fetchMemory();
+  }, [selectedTicket, currentStore]);
+
   const handleSend = async () => {
     if (!newMessage.trim() || !selectedTicket || !currentStore) return;
     setSending(true);
@@ -111,6 +141,22 @@ const TicketsPage = () => {
       toast.error("Erro ao enviar mensagem");
     }
     setSending(false);
+  };
+
+  const toggleTicketStatus = async () => {
+    if (!selectedTicket) return;
+    const newStatus = selectedTicket.status === "open" ? "closed" : "open";
+    const { error } = await supabase
+      .from("tickets")
+      .update({ status: newStatus })
+      .eq("id", selectedTicket.id);
+    if (error) {
+      toast.error("Erro ao atualizar ticket");
+      return;
+    }
+    setSelectedTicket({ ...selectedTicket, status: newStatus });
+    fetchTickets();
+    toast.success(newStatus === "closed" ? "Ticket fechado!" : "Ticket reaberto!");
   };
 
   const filteredTickets = tickets.filter((t) => {
@@ -202,7 +248,24 @@ const TicketsPage = () => {
                 <p className="font-medium text-sm">{selectedTicket.customer_name || selectedTicket.customer_phone}</p>
                 <p className="text-xs text-muted-foreground">{selectedTicket.customer_phone}</p>
               </div>
-              <div className="ml-auto">
+              <div className="ml-auto flex items-center gap-2">
+                <Button
+                  variant={selectedTicket.status === "open" ? "outline" : "default"}
+                  size="sm"
+                  onClick={toggleTicketStatus}
+                >
+                  {selectedTicket.status === "open" ? (
+                    <>
+                      <CheckCircle className="h-4 w-4 mr-1" />
+                      Fechar ticket
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="h-4 w-4 mr-1" />
+                      Reabrir
+                    </>
+                  )}
+                </Button>
                 <Badge variant={selectedTicket.status === "open" ? "default" : "secondary"}>
                   {selectedTicket.status === "open" ? "Aberto" : "Fechado"}
                 </Badge>
@@ -269,7 +332,7 @@ const TicketsPage = () => {
 
       {/* Customer Info Panel */}
       {selectedTicket && (
-        <div className="w-72 border-l bg-card p-4 hidden lg:block">
+        <div className="w-72 border-l bg-card p-4 hidden lg:block overflow-auto">
           <div className="text-center mb-4">
             <Avatar className="h-16 w-16 mx-auto mb-2">
               <AvatarFallback className="bg-primary/10 text-primary text-xl font-semibold">
@@ -281,7 +344,8 @@ const TicketsPage = () => {
               <Phone className="h-3 w-3" /> {selectedTicket.customer_phone}
             </p>
           </div>
-          <div className="space-y-3">
+
+          <div className="space-y-3 mb-6">
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Sentimento</span>
               <span>{sentimentEmoji[selectedTicket.sentiment || "neutral"]} {selectedTicket.sentiment || "neutral"}</span>
@@ -296,6 +360,37 @@ const TicketsPage = () => {
               <span className="text-muted-foreground">Criado em</span>
               <span>{selectedTicket.created_at && format(new Date(selectedTicket.created_at), "dd/MM/yyyy")}</span>
             </div>
+          </div>
+
+          {/* Customer Memory */}
+          <div className="border-t pt-4 space-y-3">
+            <h4 className="font-semibold text-sm flex items-center gap-1.5">
+              <MessageSquare className="h-4 w-4" /> Memória do Cliente
+            </h4>
+            {customerMemory ? (
+              <>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Interações</span>
+                  <span className="font-medium">{customerMemory.total_interactions || 0}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Último sentimento</span>
+                  <span>{sentimentEmoji[customerMemory.last_sentiment || "neutral"]} {customerMemory.last_sentiment || "neutral"}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground flex items-center gap-1"><Globe className="h-3 w-3" /> Idioma</span>
+                  <span>{customerMemory.preferred_language || "Português"}</span>
+                </div>
+                {customerMemory.notes && (
+                  <div className="text-sm">
+                    <span className="text-muted-foreground flex items-center gap-1 mb-1"><StickyNote className="h-3 w-3" /> Notas</span>
+                    <p className="text-xs bg-muted p-2 rounded">{customerMemory.notes}</p>
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">Nenhuma memória registrada ainda.</p>
+            )}
           </div>
         </div>
       )}

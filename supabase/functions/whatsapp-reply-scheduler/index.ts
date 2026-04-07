@@ -15,7 +15,6 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Get pending items
     const { data: queue } = await supabase
       .from("auto_reply_queue")
       .select("*")
@@ -34,18 +33,14 @@ serve(async (req) => {
 
     for (const item of queue) {
       try {
-        // Mark as processing
         await supabase.from("auto_reply_queue").update({ status: "processing" }).eq("id", item.id);
 
-        // Get settings
         const { data: settings } = await supabase.from("settings").select("*").eq("store_id", item.store_id).single();
         if (!settings) { await supabase.from("auto_reply_queue").update({ status: "failed" }).eq("id", item.id); continue; }
 
-        // Get ticket
         const { data: ticket } = await supabase.from("tickets").select("*").eq("id", item.ticket_id).single();
         if (!ticket) { await supabase.from("auto_reply_queue").update({ status: "failed" }).eq("id", item.id); continue; }
 
-        // Get last 10 messages
         const { data: messages } = await supabase
           .from("messages")
           .select("content, direction, message_type, created_at")
@@ -53,7 +48,6 @@ serve(async (req) => {
           .order("created_at", { ascending: true })
           .limit(10);
 
-        // Get customer memory
         const { data: memory } = await supabase
           .from("customer_memory")
           .select("*")
@@ -61,7 +55,6 @@ serve(async (req) => {
           .eq("customer_phone", ticket.customer_phone)
           .maybeSingle();
 
-        // Build conversation history
         const storeName = (await supabase.from("stores").select("name").eq("id", item.store_id).single()).data?.name || "Loja";
 
         const systemPrompt = (settings.ai_system_prompt || "Você é Sophia, atendente de suporte.")
@@ -138,15 +131,35 @@ serve(async (req) => {
         else if (lowerContent.match(/(demora|atraso|problema|errado|defeito|não funciona)/)) sentiment = "frustrated";
         else if (lowerContent.match(/(absurd|vergonha|péssimo|horrível|nunca mais|processsar|procon)/)) sentiment = "angry";
 
-        // Send via Z-API
-        const zapiUrl = `https://api.z-api.io/instances/${settings.zapi_instance_id}/token/${settings.zapi_token}/send-text`;
-        await fetch(zapiUrl, {
+        // Typing indicator - start composing
+        const zapiBaseUrl = `https://api.z-api.io/instances/${settings.zapi_instance_id}/token/${settings.zapi_token}`;
+        const zapiHeaders = {
+          "Content-Type": "application/json",
+          "Client-Token": settings.zapi_client_token || "",
+        };
+
+        await fetch(`${zapiBaseUrl}/send-chat-state`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Client-Token": settings.zapi_client_token || "",
-          },
+          headers: zapiHeaders,
+          body: JSON.stringify({ phone: ticket.customer_phone, chatState: "composing" }),
+        });
+
+        // Wait the configured delay
+        const delaySeconds = settings.ai_response_delay || 2;
+        await new Promise(r => setTimeout(r, delaySeconds * 1000));
+
+        // Send via Z-API
+        await fetch(`${zapiBaseUrl}/send-text`, {
+          method: "POST",
+          headers: zapiHeaders,
           body: JSON.stringify({ phone: ticket.customer_phone, message: responseText }),
+        });
+
+        // Stop typing indicator
+        await fetch(`${zapiBaseUrl}/send-chat-state`, {
+          method: "POST",
+          headers: zapiHeaders,
+          body: JSON.stringify({ phone: ticket.customer_phone, chatState: "paused" }),
         });
 
         // Save outbound message

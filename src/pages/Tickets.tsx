@@ -195,6 +195,38 @@ const TicketsPage = () => {
     toast.success(newStatus === "closed" ? "Ticket fechado!" : "Ticket reaberto!");
   };
 
+  const simulateMessage = async () => {
+    if (!currentStore) return;
+    try {
+      const { data, error } = await supabase.functions.invoke("process-inbound-whatsapp", {
+        body: {
+          waitingMessage: false,
+          isGroup: false,
+          instanceId: "test",
+          messageId: `test-${Date.now()}`,
+          phone: "5511999999999",
+          fromMe: false,
+          momment: Date.now(),
+          status: "RECEIVED",
+          chatName: "Cliente Teste",
+          senderName: "Cliente Teste",
+          broadcast: false,
+          type: "ReceivedCallback",
+          text: { message: "Olá, quero saber sobre meu pedido!" },
+          store_id: currentStore.id,
+        },
+      });
+      if (error) {
+        toast.error("Erro ao simular: " + error.message);
+      } else {
+        toast.success("Mensagem simulada! Verifique a lista.");
+        fetchTickets();
+      }
+    } catch {
+      toast.error("Erro ao simular mensagem");
+    }
+  };
+
   const filteredTickets = tickets.filter((t) => {
     if (!search) return true;
     return (

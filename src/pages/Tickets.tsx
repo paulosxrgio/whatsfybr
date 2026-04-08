@@ -262,6 +262,12 @@ const TicketsPage = () => {
               </Button>
             ))}
           </div>
+          <button
+            onClick={simulateMessage}
+            className="w-full text-xs px-3 py-1 rounded border border-dashed border-green-500 text-green-600 hover:bg-green-50"
+          >
+            + Simular mensagem
+          </button>
         </div>
         <ScrollArea className="flex-1">
           {filteredTickets.map((ticket) => (

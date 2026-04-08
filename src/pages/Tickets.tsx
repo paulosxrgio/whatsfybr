@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useStore } from "@/contexts/StoreContext";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -6,10 +6,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Bot, Search, Phone, CheckCircle, RefreshCw, Globe, StickyNote, MessageSquare } from "lucide-react";
+import { Send, Bot, Search, Phone, CheckCircle, RefreshCw, Globe, StickyNote, MessageSquare, CheckCheck, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { format } from "date-fns";
+import { format, isToday, isSameDay } from "date-fns";
 
 type Ticket = {
   id: string;
@@ -57,7 +57,10 @@ const TicketsPage = () => {
   const [filter, setFilter] = useState<"all" | "open" | "closed">("all");
   const [search, setSearch] = useState("");
   const [sending, setSending] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [customerMemory, setCustomerMemory] = useState<CustomerMemory | null>(null);
+  const [aiIsActive, setAiIsActive] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const fetchTickets = async () => {
     if (!currentStore) return;
@@ -77,6 +80,14 @@ const TicketsPage = () => {
   useEffect(() => {
     if (!currentStore) return;
     fetchTickets();
+
+    // Fetch AI active status
+    supabase
+      .from("settings")
+      .select("ai_is_active")
+      .eq("store_id", currentStore.id)
+      .maybeSingle()
+      .then(({ data }) => setAiIsActive(data?.ai_is_active ?? false));
 
     const channel = supabase
       .channel("tickets-realtime")
@@ -110,6 +121,11 @@ const TicketsPage = () => {
     return () => { supabase.removeChannel(channel); };
   }, [selectedTicket]);
 
+  // Auto-scroll to last message
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
   // Fetch customer memory
   useEffect(() => {
     if (!selectedTicket || !currentStore) {
@@ -141,6 +157,26 @@ const TicketsPage = () => {
       toast.error("Erro ao enviar mensagem");
     }
     setSending(false);
+  };
+
+  const handleGenerateAiReply = async () => {
+    if (!selectedTicket || !currentStore) return;
+    setIsGenerating(true);
+    try {
+      // Trigger the scheduler manually or generate a suggestion
+      toast.info("Gerando resposta com IA...");
+      // For now just enqueue
+      await supabase.from("auto_reply_queue").insert({
+        ticket_id: selectedTicket.id,
+        store_id: currentStore.id,
+        status: "pending",
+        scheduled_for: new Date().toISOString(),
+      });
+      toast.success("Resposta IA enfileirada!");
+    } catch {
+      toast.error("Erro ao gerar resposta IA");
+    }
+    setIsGenerating(false);
   };
 
   const toggleTicketStatus = async () => {
@@ -238,86 +274,149 @@ const TicketsPage = () => {
       <div className="flex-1 flex flex-col min-w-0">
         {selectedTicket ? (
           <>
-            <div className="p-3 border-b flex items-center gap-3 bg-card">
-              <Avatar className="h-9 w-9">
-                <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">
-                  {(selectedTicket.customer_name || selectedTicket.customer_phone).charAt(0).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-              <div>
-                <p className="font-medium text-sm">{selectedTicket.customer_name || selectedTicket.customer_phone}</p>
-                <p className="text-xs text-muted-foreground">{selectedTicket.customer_phone}</p>
+            {/* Header */}
+            <div className="h-14 border-b bg-white px-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center text-white font-bold">
+                  {selectedTicket.customer_name?.[0]?.toUpperCase() || "?"}
+                </div>
+                <div>
+                  <p className="font-medium text-sm">{selectedTicket.customer_name || selectedTicket.customer_phone}</p>
+                  <p className="text-xs text-muted-foreground">{selectedTicket.customer_phone}</p>
+                </div>
               </div>
-              <div className="ml-auto flex items-center gap-2">
-                <Button
-                  variant={selectedTicket.status === "open" ? "outline" : "default"}
-                  size="sm"
-                  onClick={toggleTicketStatus}
-                >
-                  {selectedTicket.status === "open" ? (
-                    <>
-                      <CheckCircle className="h-4 w-4 mr-1" />
-                      Fechar ticket
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className="h-4 w-4 mr-1" />
-                      Reabrir
-                    </>
-                  )}
-                </Button>
-                <Badge variant={selectedTicket.status === "open" ? "default" : "secondary"}>
-                  {selectedTicket.status === "open" ? "Aberto" : "Fechado"}
-                </Badge>
+              <div className="flex items-center gap-2">
+                {aiIsActive && (
+                  <span className="flex items-center gap-1 text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full">
+                    <Bot className="w-3 h-3" />
+                    IA ativa
+                  </span>
+                )}
+                <span className={`text-xs px-2 py-1 rounded-full ${
+                  selectedTicket.sentiment === "positive" ? "bg-green-100 text-green-700" :
+                  selectedTicket.sentiment === "frustrated" ? "bg-yellow-100 text-yellow-700" :
+                  selectedTicket.sentiment === "angry" ? "bg-red-100 text-red-700" :
+                  "bg-gray-100 text-gray-600"
+                }`}>
+                  {selectedTicket.sentiment === "positive" ? "😊 Satisfeito" :
+                   selectedTicket.sentiment === "frustrated" ? "😤 Frustrado" :
+                   selectedTicket.sentiment === "angry" ? "😡 Furioso" : "😐 Neutro"}
+                </span>
+                <button onClick={toggleTicketStatus} className="text-xs px-3 py-1 rounded border hover:bg-muted transition-colors">
+                  {selectedTicket.status === "open" ? "Fechar" : "Reabrir"}
+                </button>
               </div>
             </div>
-            <ScrollArea className="flex-1 p-4" style={{ background: "hsl(var(--whatsapp-bg))" }}>
-              <div className="space-y-2 max-w-2xl mx-auto">
-                {messages.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={cn(
-                      "flex",
-                      msg.direction === "outbound" ? "justify-end" : "justify-start"
-                    )}
-                  >
-                    <div
-                      className={cn(
-                        "max-w-[70%] rounded-lg px-3 py-2 text-sm shadow-sm",
-                        msg.direction === "outbound"
-                          ? "bg-[hsl(var(--whatsapp-outbound))] text-foreground"
-                          : "bg-[hsl(var(--whatsapp-inbound))] text-foreground"
+
+            {/* Messages */}
+            <div
+              className="flex-1 overflow-y-auto p-4 space-y-3"
+              style={{
+                backgroundColor: "#efeae2",
+                backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23d4c5a9' fill-opacity='0.3'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`
+              }}
+            >
+              <div className="max-w-2xl mx-auto space-y-3">
+                {messages.map((msg, idx) => {
+                  const msgDate = msg.created_at ? new Date(msg.created_at) : null;
+                  const prevDate = idx > 0 && messages[idx - 1].created_at ? new Date(messages[idx - 1].created_at!) : null;
+                  const isNewDay = msgDate && (!prevDate || !isSameDay(msgDate, prevDate));
+
+                  return (
+                    <div key={msg.id}>
+                      {isNewDay && msgDate && (
+                        <div className="flex items-center justify-center my-2">
+                          <span className="text-xs bg-white/80 text-gray-500 px-3 py-1 rounded-full shadow-sm">
+                            {isToday(msgDate) ? "Hoje" : format(msgDate, "dd/MM/yyyy")}
+                          </span>
+                        </div>
                       )}
-                    >
-                      {msg.message_type === "image" && msg.media_url && (
-                        <img src={msg.media_url} alt="Imagem" className="rounded mb-1 max-w-full" />
+
+                      {msg.direction === "inbound" ? (
+                        <div className="flex items-end gap-2 justify-start">
+                          <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                            {selectedTicket.customer_name?.[0]?.toUpperCase() || "?"}
+                          </div>
+                          <div className="max-w-[70%]">
+                            <div className="bg-white border border-gray-200 rounded-2xl rounded-tl-none px-4 py-2 shadow-sm">
+                              {msg.message_type === "image" && msg.media_url && (
+                                <img src={msg.media_url} alt="Imagem" className="rounded mb-1 max-w-full" />
+                              )}
+                              {msg.message_type === "audio" && msg.media_url && (
+                                <audio controls src={msg.media_url} className="max-w-full" />
+                              )}
+                              {msg.content && <p className="text-sm text-gray-800 whitespace-pre-wrap">{msg.content}</p>}
+                            </div>
+                            <span className="text-xs text-gray-400 mt-1 ml-1">
+                              {msg.created_at && format(new Date(msg.created_at), "HH:mm")}
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-end gap-2 justify-end">
+                          <div className="max-w-[70%]">
+                            <div className="bg-[#dcf8c6] rounded-2xl rounded-tr-none px-4 py-2 shadow-sm">
+                              {msg.message_type === "image" && msg.media_url && (
+                                <img src={msg.media_url} alt="Imagem" className="rounded mb-1 max-w-full" />
+                              )}
+                              {msg.message_type === "audio" && msg.media_url && (
+                                <audio controls src={msg.media_url} className="max-w-full" />
+                              )}
+                              {msg.content && <p className="text-sm text-gray-800 whitespace-pre-wrap">{msg.content}</p>}
+                            </div>
+                            <div className="flex items-center justify-end gap-1 mt-1 mr-1">
+                              <span className="text-xs text-gray-400">
+                                {msg.created_at && format(new Date(msg.created_at), "HH:mm")}
+                              </span>
+                              <CheckCheck className="w-3 h-3 text-blue-500" />
+                            </div>
+                          </div>
+                        </div>
                       )}
-                      {msg.message_type === "audio" && msg.media_url && (
-                        <audio controls src={msg.media_url} className="max-w-full" />
-                      )}
-                      {msg.content && <p className="whitespace-pre-wrap">{msg.content}</p>}
-                      <p className="text-[10px] text-muted-foreground mt-1 text-right">
-                        {msg.created_at && format(new Date(msg.created_at), "HH:mm")}
-                      </p>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
+                <div ref={messagesEndRef} />
               </div>
-            </ScrollArea>
-            <div className="p-3 border-t bg-card flex gap-2">
-              <Input
-                placeholder="Digite sua mensagem..."
+            </div>
+
+            {/* Input */}
+            <div className="p-3 bg-[#f0f2f5] border-t flex items-end gap-2">
+              <textarea
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-                className="flex-1"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+                placeholder="Digite uma mensagem..."
+                rows={1}
+                className="flex-1 resize-none rounded-3xl px-4 py-2 text-sm bg-white border-0 outline-none focus:ring-0 max-h-32 overflow-y-auto"
+                style={{ minHeight: "40px" }}
               />
-              <Button variant="ghost" size="icon" title="Gerar Resposta IA">
-                <Bot className="h-4 w-4" />
-              </Button>
-              <Button size="icon" onClick={handleSend} disabled={sending || !newMessage.trim()}>
-                <Send className="h-4 w-4" />
-              </Button>
+              <button
+                onClick={handleSend}
+                disabled={!newMessage.trim() || sending}
+                className="w-10 h-10 rounded-full bg-green-500 hover:bg-green-600 disabled:opacity-50 flex items-center justify-center flex-shrink-0"
+              >
+                {sending
+                  ? <Loader2 className="w-4 h-4 text-white animate-spin" />
+                  : <Send className="w-4 h-4 text-white" />
+                }
+              </button>
+              <button
+                onClick={handleGenerateAiReply}
+                disabled={isGenerating}
+                title="Gerar resposta com IA"
+                className="w-10 h-10 rounded-full bg-blue-500 hover:bg-blue-600 disabled:opacity-50 flex items-center justify-center flex-shrink-0"
+              >
+                {isGenerating
+                  ? <Loader2 className="w-4 h-4 text-white animate-spin" />
+                  : <Bot className="w-4 h-4 text-white" />
+                }
+              </button>
             </div>
           </>
         ) : (

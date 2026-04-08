@@ -12,6 +12,7 @@ import SettingsPage from "./pages/Settings";
 import AIAgentPage from "./pages/AIAgent";
 import RequestsPage from "./pages/Requests";
 import AnalyticsPage from "./pages/Analytics";
+import AccountSettingsPage from "./pages/AccountSettings";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();

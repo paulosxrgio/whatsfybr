@@ -195,6 +195,38 @@ const TicketsPage = () => {
     toast.success(newStatus === "closed" ? "Ticket fechado!" : "Ticket reaberto!");
   };
 
+  const simulateMessage = async () => {
+    if (!currentStore) return;
+    try {
+      const { data, error } = await supabase.functions.invoke("process-inbound-whatsapp", {
+        body: {
+          waitingMessage: false,
+          isGroup: false,
+          instanceId: "test",
+          messageId: `test-${Date.now()}`,
+          phone: "5511999999999",
+          fromMe: false,
+          momment: Date.now(),
+          status: "RECEIVED",
+          chatName: "Cliente Teste",
+          senderName: "Cliente Teste",
+          broadcast: false,
+          type: "ReceivedCallback",
+          text: { message: "Olá, quero saber sobre meu pedido!" },
+          store_id: currentStore.id,
+        },
+      });
+      if (error) {
+        toast.error("Erro ao simular: " + error.message);
+      } else {
+        toast.success("Mensagem simulada! Verifique a lista.");
+        fetchTickets();
+      }
+    } catch {
+      toast.error("Erro ao simular mensagem");
+    }
+  };
+
   const filteredTickets = tickets.filter((t) => {
     if (!search) return true;
     return (
@@ -230,6 +262,12 @@ const TicketsPage = () => {
               </Button>
             ))}
           </div>
+          <button
+            onClick={simulateMessage}
+            className="w-full text-xs px-3 py-1 rounded border border-dashed border-green-500 text-green-600 hover:bg-green-50"
+          >
+            + Simular mensagem
+          </button>
         </div>
         <ScrollArea className="flex-1">
           {filteredTickets.map((ticket) => (

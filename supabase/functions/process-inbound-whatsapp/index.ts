@@ -3,33 +3,47 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-store-id",
 };
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const url = new URL(req.url);
-    const storeId = url.searchParams.get("store_id");
-
-    if (!storeId) {
-      return new Response(JSON.stringify({ error: "store_id required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
     const body = await req.json();
 
+    console.log("=== WEBHOOK RECEBIDO ===");
+    console.log("Body:", JSON.stringify(body));
+
+    // Resolve store_id from multiple sources
+    const url = new URL(req.url);
+    let storeId = url.searchParams.get("store_id");
+
+    if (!storeId) {
+      storeId = req.headers.get("x-store-id");
+    }
+
+    if (!storeId && body.store_id) {
+      storeId = body.store_id;
+    }
+
+    console.log("store_id resolved:", storeId);
+
+    if (!storeId) {
+      console.error("ERRO: store_id não encontrado");
+      return new Response(JSON.stringify({ error: "Missing store_id" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     // Ignorar mensagens enviadas por mim
+    console.log("fromMe:", body.fromMe, "isGroup:", body.isGroup, "type:", body.type);
     if (body.fromMe === true) {
       return new Response(JSON.stringify({ ok: true, skipped: "fromMe" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Ignorar grupos
     if (body.isGroup === true) {
       return new Response(JSON.stringify({ ok: true, skipped: "group" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Ignorar se não for ReceivedCallback
     if (body.type !== "ReceivedCallback") {
       return new Response(JSON.stringify({ ok: true, skipped: "not_received_callback" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -38,6 +52,8 @@ serve(async (req) => {
     const senderName = body.senderName || body.chatName || "";
     const messageText = body.text?.message || "";
     const zapiMessageId = body.messageId || null;
+
+    console.log("phone:", phone, "senderName:", senderName, "text:", messageText);
 
     // Detectar tipo de mídia
     let messageType = "text";
@@ -57,7 +73,7 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Idempotência — evitar processar a mesma mensagem duas vezes
+    // Idempotência
     if (zapiMessageId) {
       const { data: existingMessage } = await supabase
         .from("messages")
@@ -66,6 +82,7 @@ serve(async (req) => {
         .maybeSingle();
 
       if (existingMessage) {
+        console.log("Mensagem duplicada, ignorando:", zapiMessageId);
         return new Response(JSON.stringify({ ok: true, skipped: "duplicate" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
     }
@@ -81,6 +98,8 @@ serve(async (req) => {
       .limit(1)
       .maybeSingle();
 
+    console.log("Ticket existente:", ticket?.id || "nenhum");
+
     if (!ticket) {
       const { data: newTicket, error } = await supabase.from("tickets").insert({
         store_id: storeId,
@@ -90,8 +109,12 @@ serve(async (req) => {
         sentiment: "neutral",
       }).select().single();
 
-      if (error) throw error;
+      if (error) {
+        console.error("Erro ao criar ticket:", error);
+        throw error;
+      }
       ticket = newTicket;
+      console.log("Novo ticket criado:", ticket.id);
     } else if (senderName && !ticket.customer_name) {
       await supabase.from("tickets").update({ customer_name: senderName }).eq("id", ticket.id);
     }
@@ -101,7 +124,7 @@ serve(async (req) => {
 
     // Save inbound message
     const content = messageType === "audio" ? "[Áudio]" : messageText;
-    await supabase.from("messages").insert({
+    const { error: msgError } = await supabase.from("messages").insert({
       ticket_id: ticket.id,
       store_id: storeId,
       content,
@@ -110,6 +133,12 @@ serve(async (req) => {
       media_url: mediaUrl,
       zapi_message_id: zapiMessageId,
     });
+
+    if (msgError) {
+      console.error("Erro ao salvar mensagem:", msgError);
+    } else {
+      console.log("Mensagem salva com sucesso");
+    }
 
     // Update customer memory
     await supabase.from("customer_memory").upsert({
@@ -153,6 +182,8 @@ serve(async (req) => {
         console.error("Transcription trigger failed:", e);
       }
     }
+
+    console.log("=== WEBHOOK PROCESSADO COM SUCESSO ===", { ticket_id: ticket.id });
 
     return new Response(JSON.stringify({ ok: true, ticket_id: ticket.id }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

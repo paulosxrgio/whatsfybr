@@ -133,10 +133,51 @@ const AccountSettingsPage = () => {
               type="password"
               placeholder="sk-..."
               value={aiProvider === "openai" ? openaiKey : anthropicKey}
-              onChange={(e) =>
-                aiProvider === "openai" ? setOpenaiKey(e.target.value) : setAnthropicKey(e.target.value)
-              }
+              onChange={(e) => {
+                setVerifyStatus('idle');
+                aiProvider === "openai" ? setOpenaiKey(e.target.value) : setAnthropicKey(e.target.value);
+              }}
             />
+            <div className="flex items-center gap-3 mt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  setVerifying(true);
+                  setVerifyStatus('idle');
+                  try {
+                    const { data, error } = await supabase.functions.invoke('verify-ai-connection', {
+                      body: {
+                        provider: aiProvider,
+                        api_key: aiProvider === 'anthropic' ? anthropicKey : openaiKey,
+                        model: aiModel,
+                      },
+                    });
+                    if (error) throw error;
+                    setVerifyStatus(data?.success ? 'success' : 'error');
+                  } catch {
+                    setVerifyStatus('error');
+                  } finally {
+                    setVerifying(false);
+                  }
+                }}
+                disabled={verifying || !(aiProvider === "openai" ? openaiKey : anthropicKey)}
+                className="gap-2"
+              >
+                {verifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plug className="w-4 h-4" />}
+                {verifying ? 'Verificando...' : 'Verificar conexão'}
+              </Button>
+              {verifyStatus === 'success' && (
+                <span className="flex items-center gap-1 text-sm text-green-600">
+                  <CheckCircle2 className="w-4 h-4" /> API Key válida!
+                </span>
+              )}
+              {verifyStatus === 'error' && (
+                <span className="flex items-center gap-1 text-sm text-destructive">
+                  <XCircle className="w-4 h-4" /> API Key inválida. Verifique e tente novamente.
+                </span>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>

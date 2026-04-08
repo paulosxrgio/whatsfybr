@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Copy, CheckCircle, Loader2, Info, Wifi } from "lucide-react";
+import { Copy, CheckCircle, Loader2, Info, Wifi, Activity } from "lucide-react";
 
 const DEFAULT_SYSTEM_PROMPT = `Você é Sophia, atendente de suporte da loja via WhatsApp.
 

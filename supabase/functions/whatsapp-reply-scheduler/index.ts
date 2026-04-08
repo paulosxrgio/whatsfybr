@@ -96,33 +96,33 @@ serve(async (req) => {
         // Call AI
         let responseText = "";
 
-        if (settings.ai_provider === "openai") {
+        if (aiProvider === "openai") {
           const res = await fetch("https://api.openai.com/v1/chat/completions", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "Authorization": `Bearer ${settings.openai_api_key}`,
+              "Authorization": `Bearer ${openaiApiKey}`,
             },
             body: JSON.stringify({
-              model: settings.ai_model || "gpt-4o",
+              model: aiModel,
               messages: chatMessages,
               max_tokens: 500,
             }),
           });
           const data = await res.json();
           responseText = data.choices?.[0]?.message?.content || "";
-        } else if (settings.ai_provider === "anthropic") {
+        } else if (aiProvider === "anthropic") {
           const systemMsg = chatMessages.filter(m => m.role === "system").map(m => m.content).join("\n\n");
           const userMsgs = chatMessages.filter(m => m.role !== "system");
           const res = await fetch("https://api.anthropic.com/v1/messages", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "x-api-key": settings.anthropic_api_key || "",
+              "x-api-key": anthropicApiKey,
               "anthropic-version": "2023-06-01",
             },
             body: JSON.stringify({
-              model: settings.ai_model || "claude-sonnet-4-20250514",
+              model: aiModel,
               max_tokens: 500,
               system: systemMsg,
               messages: userMsgs,

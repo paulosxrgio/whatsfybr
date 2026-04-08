@@ -1,27 +1,16 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useStore } from "@/contexts/StoreContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { Bot, Save, TrendingUp } from "lucide-react";
+import { Bot, Save, TrendingUp, ExternalLink } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-
-const modelsByProvider: Record<string, { value: string; label: string }[]> = {
-  openai: [
-    { value: "gpt-4o", label: "GPT-4o" },
-    { value: "gpt-4o-mini", label: "GPT-4o Mini" },
-    { value: "gpt-3.5-turbo", label: "GPT-3.5 Turbo" },
-  ],
-  anthropic: [
-    { value: "claude-sonnet-4-20250514", label: "Claude Sonnet 4" },
-    { value: "claude-3-haiku-20240307", label: "Claude 3 Haiku" },
-  ],
-};
+import { useNavigate } from "react-router-dom";
 
 const getDefaultPrompt = (storeName: string) =>
   `Você é Sophia, atendente de suporte da loja ${storeName} via WhatsApp.
@@ -51,49 +40,51 @@ Assine sempre: Abraços, Sophia`;
 
 const AIAgentPage = () => {
   const { currentStore } = useStore();
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const [settingsId, setSettingsId] = useState<string | null>(null);
   const [aiIsActive, setAiIsActive] = useState(false);
-  const [aiProvider, setAiProvider] = useState("openai");
-  const [aiModel, setAiModel] = useState("gpt-4o");
   const [aiDelay, setAiDelay] = useState(2);
   const [aiPrompt, setAiPrompt] = useState("");
-  const [openaiKey, setOpenaiKey] = useState("");
-  const [anthropicKey, setAnthropicKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [accountProvider, setAccountProvider] = useState<string | null>(null);
+  const [accountModel, setAccountModel] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!currentStore) return;
+    if (!currentStore || !user) return;
     setLoading(true);
-    supabase
-      .from("settings")
-      .select("id, ai_is_active, ai_provider, ai_model, ai_response_delay, ai_system_prompt, openai_api_key, anthropic_api_key")
-      .eq("store_id", currentStore.id)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data) {
-          setSettingsId(data.id);
-          setAiIsActive(data.ai_is_active ?? false);
-          setAiProvider(data.ai_provider || "openai");
-          setAiModel(data.ai_model || "gpt-4o");
-          setAiDelay(data.ai_response_delay ?? 2);
-          setAiPrompt(data.ai_system_prompt || getDefaultPrompt(currentStore.name));
-          setOpenaiKey(data.openai_api_key || "");
-          setAnthropicKey(data.anthropic_api_key || "");
-        } else {
-          setSettingsId(null);
-          setAiPrompt(getDefaultPrompt(currentStore.name));
-        }
-        setLoading(false);
-      });
-  }, [currentStore]);
 
-  useEffect(() => {
-    const models = modelsByProvider[aiProvider] || modelsByProvider.openai;
-    if (!models.find((m) => m.value === aiModel)) {
-      setAiModel(models[0].value);
-    }
-  }, [aiProvider]);
+    Promise.all([
+      supabase
+        .from("settings")
+        .select("id, ai_is_active, ai_response_delay, ai_system_prompt")
+        .eq("store_id", currentStore.id)
+        .maybeSingle(),
+      supabase
+        .from("account_settings")
+        .select("ai_provider, ai_model")
+        .eq("user_id", user.id)
+        .maybeSingle(),
+    ]).then(([settingsRes, accountRes]) => {
+      const data = settingsRes.data;
+      if (data) {
+        setSettingsId(data.id);
+        setAiIsActive(data.ai_is_active ?? false);
+        setAiDelay(data.ai_response_delay ?? 2);
+        setAiPrompt(data.ai_system_prompt || getDefaultPrompt(currentStore.name));
+      } else {
+        setSettingsId(null);
+        setAiPrompt(getDefaultPrompt(currentStore.name));
+      }
+
+      const acct = accountRes.data;
+      setAccountProvider(acct?.ai_provider || null);
+      setAccountModel(acct?.ai_model || null);
+
+      setLoading(false);
+    });
+  }, [currentStore, user]);
 
   const handleSave = async () => {
     if (!currentStore) return;
@@ -101,12 +92,8 @@ const AIAgentPage = () => {
     const payload = {
       store_id: currentStore.id,
       ai_is_active: aiIsActive,
-      ai_provider: aiProvider,
-      ai_model: aiModel,
       ai_response_delay: aiDelay,
       ai_system_prompt: aiPrompt,
-      openai_api_key: openaiKey || null,
-      anthropic_api_key: anthropicKey || null,
     };
 
     let error;
@@ -118,19 +105,14 @@ const AIAgentPage = () => {
       if (res.data) setSettingsId(res.data.id);
     }
 
-    if (error) {
-      toast.error("Erro ao salvar configurações");
-    } else {
-      toast.success("Configurações salvas!");
-    }
+    if (error) toast.error("Erro ao salvar configurações");
+    else toast.success("Configurações salvas!");
     setSaving(false);
   };
 
   if (loading) {
     return <div className="p-6 flex items-center justify-center h-full text-muted-foreground">Carregando...</div>;
   }
-
-  const models = modelsByProvider[aiProvider] || modelsByProvider.openai;
 
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6 overflow-auto h-full">
@@ -140,53 +122,29 @@ const AIAgentPage = () => {
 
       <Card>
         <CardHeader>
-          <CardTitle>Controle</CardTitle>
+          <CardTitle>Provedor de IA</CardTitle>
         </CardHeader>
-        <CardContent className="flex items-center justify-between">
-          <Label>Ativar respostas automáticas</Label>
-          <Switch checked={aiIsActive} onCheckedChange={setAiIsActive} />
+        <CardContent>
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-muted-foreground">
+              {accountProvider && accountModel
+                ? `Provedor configurado em Minha Conta: ${accountProvider === "openai" ? "OpenAI" : "Anthropic"} — ${accountModel}`
+                : "Nenhum provedor configurado. Configure em Minha Conta."}
+            </div>
+            <Button variant="outline" size="sm" onClick={() => navigate("/account-settings")} className="gap-1">
+              <ExternalLink className="h-3 w-3" /> Alterar em Minha Conta
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Provedor e Modelo</CardTitle>
+          <CardTitle>Controle</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label>Provedor</Label>
-              <Select value={aiProvider} onValueChange={setAiProvider}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="openai">OpenAI</SelectItem>
-                  <SelectItem value="anthropic">Anthropic</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Modelo</Label>
-              <Select value={aiModel} onValueChange={setAiModel}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {models.map((m) => (
-                    <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label>Chave API {aiProvider === "openai" ? "OpenAI" : "Anthropic"}</Label>
-            <Input
-              type="password"
-              placeholder={`sk-...`}
-              value={aiProvider === "openai" ? openaiKey : anthropicKey}
-              onChange={(e) =>
-                aiProvider === "openai" ? setOpenaiKey(e.target.value) : setAnthropicKey(e.target.value)
-              }
-            />
-          </div>
+        <CardContent className="flex items-center justify-between">
+          <Label>Ativar respostas automáticas</Label>
+          <Switch checked={aiIsActive} onCheckedChange={setAiIsActive} />
         </CardContent>
       </Card>
 

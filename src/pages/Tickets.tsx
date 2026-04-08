@@ -307,7 +307,15 @@ const TicketsPage = () => {
                   <span className="text-xs text-muted-foreground truncate">
                     {ticket.customer_phone}
                   </span>
-                  <span className="text-sm">{sentimentEmoji[ticket.sentiment || "neutral"] || "😐"}</span>
+                  <div className="flex items-center gap-1">
+                    {ticket.hasPendingQueue && (
+                      <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        {ticket.pendingMessageCount && ticket.pendingMessageCount > 1 ? `${ticket.pendingMessageCount}` : ""}
+                      </span>
+                    )}
+                    <span className="text-sm">{sentimentEmoji[ticket.sentiment || "neutral"] || "😐"}</span>
+                  </div>
                 </div>
               </div>
             </button>

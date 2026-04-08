@@ -20,6 +20,8 @@ type Ticket = {
   sentiment: string | null;
   last_message_at: string | null;
   created_at: string | null;
+  hasPendingQueue?: boolean;
+  pendingMessageCount?: number;
 };
 
 type Message = {

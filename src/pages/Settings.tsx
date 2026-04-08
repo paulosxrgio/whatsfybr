@@ -40,10 +40,6 @@ type Settings = {
   zapi_instance_id: string;
   zapi_token: string;
   zapi_client_token: string;
-  ai_provider: string;
-  openai_api_key: string;
-  anthropic_api_key: string;
-  ai_model: string;
   ai_system_prompt: string;
   ai_is_active: boolean;
   ai_response_delay: number;

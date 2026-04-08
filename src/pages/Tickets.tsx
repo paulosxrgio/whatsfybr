@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Bot, Search, Phone, CheckCircle, RefreshCw, Globe, StickyNote, MessageSquare, CheckCheck, Loader2 } from "lucide-react";
+import { Send, Bot, Search, Phone, CheckCircle, RefreshCw, Globe, StickyNote, MessageSquare, CheckCheck, Loader2, Clock } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { format, isToday, isSameDay } from "date-fns";
@@ -20,6 +20,8 @@ type Ticket = {
   sentiment: string | null;
   last_message_at: string | null;
   created_at: string | null;
+  hasPendingQueue?: boolean;
+  pendingMessageCount?: number;
 };
 
 type Message = {
@@ -66,7 +68,7 @@ const TicketsPage = () => {
     if (!currentStore) return;
     let query = supabase
       .from("tickets")
-      .select("*")
+      .select("*, auto_reply_queue(id, status, message_count)")
       .eq("store_id", currentStore.id)
       .order("last_message_at", { ascending: false });
 
@@ -74,7 +76,15 @@ const TicketsPage = () => {
     if (filter === "closed") query = query.eq("status", "closed");
 
     const { data } = await query;
-    if (data) setTickets(data);
+    if (data) {
+      const ticketsWithQueue = data.map((t: any) => ({
+        ...t,
+        hasPendingQueue: t.auto_reply_queue?.some((q: any) => q.status === "pending"),
+        pendingMessageCount: t.auto_reply_queue?.find((q: any) => q.status === "pending")?.message_count || 0,
+        auto_reply_queue: undefined,
+      }));
+      setTickets(ticketsWithQueue);
+    }
   };
 
   useEffect(() => {
@@ -297,7 +307,15 @@ const TicketsPage = () => {
                   <span className="text-xs text-muted-foreground truncate">
                     {ticket.customer_phone}
                   </span>
-                  <span className="text-sm">{sentimentEmoji[ticket.sentiment || "neutral"] || "😐"}</span>
+                  <div className="flex items-center gap-1">
+                    {ticket.hasPendingQueue && (
+                      <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        {ticket.pendingMessageCount && ticket.pendingMessageCount > 1 ? `${ticket.pendingMessageCount}` : ""}
+                      </span>
+                    )}
+                    <span className="text-sm">{sentimentEmoji[ticket.sentiment || "neutral"] || "😐"}</span>
+                  </div>
                 </div>
               </div>
             </button>

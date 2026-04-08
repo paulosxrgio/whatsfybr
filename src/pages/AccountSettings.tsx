@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Loader2, Save, SlidersHorizontal, User } from "lucide-react";
+import { Loader2, Save, SlidersHorizontal, User, Plug, CheckCircle2, XCircle } from "lucide-react";
 
 const modelsByProvider: Record<string, { value: string; label: string }[]> = {
   openai: [

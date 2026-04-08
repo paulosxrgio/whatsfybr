@@ -122,8 +122,40 @@ serve(async (req) => {
     // Update last_message_at
     await supabase.from("tickets").update({ last_message_at: new Date().toISOString() }).eq("id", ticket.id);
 
+    // If audio, transcribe before saving
+    let content = messageText;
+    if (messageType === "audio" && mediaUrl) {
+      try {
+        const { data: storeData } = await supabase.from("stores").select("user_id").eq("id", storeId).single();
+        const { data: acctSettings } = storeData
+          ? await supabase.from("account_settings").select("openai_api_key").eq("user_id", storeData.user_id).maybeSingle()
+          : { data: null };
+
+        if (acctSettings?.openai_api_key) {
+          const transcribeRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/transcribe-audio`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+            },
+            body: JSON.stringify({ audio_url: mediaUrl, openai_api_key: acctSettings.openai_api_key }),
+          });
+          const transcription = await transcribeRes.json();
+          if (transcription?.text) {
+            content = `🎤 ${transcription.text}`;
+          } else {
+            content = "🎤 [Áudio recebido - transcrição indisponível]";
+          }
+        } else {
+          content = "🎤 [Áudio recebido - API key não configurada]";
+        }
+      } catch (e) {
+        console.error("Transcription failed:", e);
+        content = "🎤 [Áudio recebido]";
+      }
+    }
+
     // Save inbound message
-    const content = messageType === "audio" ? "[Áudio]" : messageText;
     const { error: msgError } = await supabase.from("messages").insert({
       ticket_id: ticket.id,
       store_id: storeId,
@@ -165,22 +197,6 @@ serve(async (req) => {
         status: "pending",
         scheduled_for: scheduledFor,
       });
-    }
-
-    // If audio, trigger transcription
-    if (messageType === "audio" && mediaUrl) {
-      try {
-        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/transcribe-audio`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-          },
-          body: JSON.stringify({ ticket_id: ticket.id, store_id: storeId, audio_url: mediaUrl }),
-        });
-      } catch (e) {
-        console.error("Transcription trigger failed:", e);
-      }
     }
 
     console.log("=== WEBHOOK PROCESSADO COM SUCESSO ===", { ticket_id: ticket.id });

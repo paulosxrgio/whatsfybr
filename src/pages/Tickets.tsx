@@ -68,7 +68,7 @@ const TicketsPage = () => {
     if (!currentStore) return;
     let query = supabase
       .from("tickets")
-      .select("*")
+      .select("*, auto_reply_queue(id, status, message_count)")
       .eq("store_id", currentStore.id)
       .order("last_message_at", { ascending: false });
 
@@ -76,7 +76,15 @@ const TicketsPage = () => {
     if (filter === "closed") query = query.eq("status", "closed");
 
     const { data } = await query;
-    if (data) setTickets(data);
+    if (data) {
+      const ticketsWithQueue = data.map((t: any) => ({
+        ...t,
+        hasPendingQueue: t.auto_reply_queue?.some((q: any) => q.status === "pending"),
+        pendingMessageCount: t.auto_reply_queue?.find((q: any) => q.status === "pending")?.message_count || 0,
+        auto_reply_queue: undefined,
+      }));
+      setTickets(ticketsWithQueue);
+    }
   };
 
   useEffect(() => {

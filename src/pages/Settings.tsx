@@ -194,8 +194,37 @@ const SettingsPage = () => {
         </CardContent>
       </Card>
 
+      {/* Diagnóstico do Webhook */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Activity className="h-5 w-5" />
+            Diagnóstico do Webhook
+          </CardTitle>
+          <CardDescription>Verifique se a integração Z-API está funcionando</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm">
+            <p className="font-medium text-yellow-800 mb-1">⚠️ URL que deve estar configurada na Z-API:</p>
+            <code className="text-xs bg-white px-2 py-1 rounded border block break-all">
+              {webhookUrl}
+            </code>
+            <p className="text-yellow-700 mt-2 text-xs">
+              Cole essa URL exata no campo "Ao receber" da sua instância Z-API e clique em Salvar.
+            </p>
+          </div>
 
-      {/* AI Agent */}
+          <Button
+            variant="outline"
+            onClick={handleVerifyZapi}
+            disabled={verifying || !settings.zapi_instance_id || !settings.zapi_token}
+            className="w-full"
+          >
+            {verifying ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Wifi className="h-4 w-4 mr-2" />}
+            Testar Webhook Z-API
+          </Button>
+        </CardContent>
+      </Card>
       <Card>
         <CardHeader>
           <CardTitle>Agente IA (Sophia)</CardTitle>

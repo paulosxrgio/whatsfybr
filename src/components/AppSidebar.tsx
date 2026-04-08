@@ -1,4 +1,4 @@
-import { MessageCircle, Bot, ClipboardList, BarChart3, Settings, LogOut } from "lucide-react";
+import { MessageCircle, Bot, ClipboardList, BarChart3, Settings, LogOut, SlidersHorizontal } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import { StoreSwitcher } from "@/components/StoreSwitcher";

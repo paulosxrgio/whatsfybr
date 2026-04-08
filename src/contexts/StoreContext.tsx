@@ -34,9 +34,19 @@ export const StoreProvider = ({ children }: { children: React.ReactNode }) => {
   const fetchStores = async () => {
     const { data } = await supabase.from("stores").select("*").order("created_at");
     if (data && data.length > 0) {
-      setStores(data);
-      if (!currentStore || !data.find((s) => s.id === currentStore.id)) {
-        setCurrentStore(data[0]);
+      const testStore = data.find((s) => s.name === "Minha Loja Teste");
+      if (testStore && data.length > 1) {
+        await supabase.from("stores").delete().eq("id", testStore.id);
+        const filtered = data.filter((s) => s.id !== testStore.id);
+        setStores(filtered);
+        if (!currentStore || !filtered.find((s) => s.id === currentStore.id)) {
+          setCurrentStore(filtered[0]);
+        }
+      } else {
+        setStores(data);
+        if (!currentStore || !data.find((s) => s.id === currentStore.id)) {
+          setCurrentStore(data[0]);
+        }
       }
     } else {
       setStores([]);

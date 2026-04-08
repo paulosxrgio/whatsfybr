@@ -37,6 +37,7 @@ serve(async (req) => {
 
         const { data: settings } = await supabase.from("settings").select("*").eq("store_id", item.store_id).single();
         if (!settings) { await supabase.from("auto_reply_queue").update({ status: "failed" }).eq("id", item.id); continue; }
+        if (!settings.ai_is_active) { await supabase.from("auto_reply_queue").update({ status: "skipped" }).eq("id", item.id); continue; }
 
         const { data: ticket } = await supabase.from("tickets").select("*").eq("id", item.ticket_id).single();
         if (!ticket) { await supabase.from("auto_reply_queue").update({ status: "failed" }).eq("id", item.id); continue; }

@@ -1,5 +1,4 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -10,23 +9,16 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { ticket_id, store_id, audio_url } = await req.json();
+    const { audio_url, openai_api_key } = await req.json();
 
-    if (!ticket_id || !store_id || !audio_url) {
-      return new Response(JSON.stringify({ error: "ticket_id, store_id, audio_url required" }), {
+    if (!audio_url) {
+      return new Response(JSON.stringify({ error: "audio_url required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
-
-    // Get settings for OpenAI key
-    const { data: settings } = await supabase.from("settings").select("openai_api_key").eq("store_id", store_id).single();
-    if (!settings?.openai_api_key) {
-      return new Response(JSON.stringify({ error: "OpenAI API key not configured" }), {
+    if (!openai_api_key) {
+      return new Response(JSON.stringify({ error: "openai_api_key required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -34,7 +26,8 @@ serve(async (req) => {
     // Download audio
     const audioRes = await fetch(audio_url);
     if (!audioRes.ok) throw new Error("Failed to download audio");
-    const audioBlob = await audioRes.blob();
+    const audioBuffer = await audioRes.arrayBuffer();
+    const audioBlob = new Blob([audioBuffer], { type: "audio/ogg" });
 
     // Send to Whisper
     const formData = new FormData();
@@ -44,7 +37,7 @@ serve(async (req) => {
 
     const whisperRes = await fetch("https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",
-      headers: { "Authorization": `Bearer ${settings.openai_api_key}` },
+      headers: { "Authorization": `Bearer ${openai_api_key}` },
       body: formData,
     });
 
@@ -56,22 +49,7 @@ serve(async (req) => {
 
     const { text } = await whisperRes.json();
 
-    // Update the most recent audio message for this ticket
-    const { data: audioMsg } = await supabase
-      .from("messages")
-      .select("id")
-      .eq("ticket_id", ticket_id)
-      .eq("message_type", "audio")
-      .eq("direction", "inbound")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .single();
-
-    if (audioMsg) {
-      await supabase.from("messages").update({ content: `[Áudio transcrito]: ${text}` }).eq("id", audioMsg.id);
-    }
-
-    return new Response(JSON.stringify({ ok: true, transcription: text }), {
+    return new Response(JSON.stringify({ text }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {

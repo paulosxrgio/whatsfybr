@@ -21,6 +21,7 @@ serve(async (req) => {
     const res = await fetch(
       `https://api.z-api.io/instances/${instance_id}/token/${token}/status`,
       {
+        method: "GET",
         headers: {
           "Client-Token": client_token || "",
           "Content-Type": "application/json",

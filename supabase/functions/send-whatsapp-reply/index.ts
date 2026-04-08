@@ -23,15 +23,14 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Get ticket
     const { data: ticket } = await supabase.from("tickets").select("customer_phone").eq("id", ticket_id).single();
     if (!ticket) throw new Error("Ticket not found");
 
-    // Get settings
     const { data: settings } = await supabase.from("settings").select("*").eq("store_id", store_id).single();
     if (!settings) throw new Error("Settings not found");
 
-    // Send via Z-API
+    const cleanPhone = ticket.customer_phone.replace(/\D/g, "");
+
     const zapiUrl = `https://api.z-api.io/instances/${settings.zapi_instance_id}/token/${settings.zapi_token}/send-text`;
     const zapiRes = await fetch(zapiUrl, {
       method: "POST",
@@ -39,7 +38,7 @@ serve(async (req) => {
         "Content-Type": "application/json",
         "Client-Token": settings.zapi_client_token || "",
       },
-      body: JSON.stringify({ phone: ticket.customer_phone, message }),
+      body: JSON.stringify({ phone: cleanPhone, message }),
     });
 
     if (!zapiRes.ok) {
@@ -48,7 +47,6 @@ serve(async (req) => {
       throw new Error("Z-API send failed");
     }
 
-    // Save outbound message
     await supabase.from("messages").insert({
       ticket_id,
       store_id,
@@ -57,7 +55,6 @@ serve(async (req) => {
       message_type: "text",
     });
 
-    // Update last_message_at
     await supabase.from("tickets").update({ last_message_at: new Date().toISOString() }).eq("id", ticket_id);
 
     return new Response(JSON.stringify({ ok: true }), {

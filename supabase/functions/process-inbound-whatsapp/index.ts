@@ -19,17 +19,34 @@ serve(async (req) => {
 
     const body = await req.json();
 
-    // Ignore fromMe and group messages
-    if (body.fromMe === true || body.isGroup === true) {
-      return new Response(JSON.stringify({ ok: true, skipped: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    // Ignorar mensagens enviadas por mim
+    if (body.fromMe === true) {
+      return new Response(JSON.stringify({ ok: true, skipped: "fromMe" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const phone = body.phone;
-    const senderName = body.senderName || null;
-    const messageText = body.text?.message || body.text || "";
-    const messageType = body.type === "ReceivedCallback" ? "text" : (body.image ? "image" : body.audio ? "audio" : body.document ? "document" : "text");
-    const mediaUrl = body.image?.imageUrl || body.audio?.audioUrl || body.document?.documentUrl || null;
+    // Ignorar grupos
+    if (body.isGroup === true) {
+      return new Response(JSON.stringify({ ok: true, skipped: "group" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // Ignorar se não for ReceivedCallback
+    if (body.type !== "ReceivedCallback") {
+      return new Response(JSON.stringify({ ok: true, skipped: "not_received_callback" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    const phone = body.phone ? String(body.phone).replace(/\D/g, "") : "";
+    const senderName = body.senderName || body.chatName || "";
+    const messageText = body.text?.message || "";
     const zapiMessageId = body.messageId || null;
+
+    // Detectar tipo de mídia
+    let messageType = "text";
+    let mediaUrl: string | null = null;
+
+    if (body.image) { messageType = "image"; mediaUrl = body.image.imageUrl || null; }
+    else if (body.audio) { messageType = "audio"; mediaUrl = body.audio.audioUrl || null; }
+    else if (body.video) { messageType = "video"; mediaUrl = body.video.videoUrl || null; }
+    else if (body.document) { messageType = "document"; mediaUrl = body.document.documentUrl || null; }
 
     if (!phone) {
       return new Response(JSON.stringify({ error: "phone required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -39,6 +56,19 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
+
+    // Idempotência — evitar processar a mesma mensagem duas vezes
+    if (zapiMessageId) {
+      const { data: existingMessage } = await supabase
+        .from("messages")
+        .select("id")
+        .eq("zapi_message_id", zapiMessageId)
+        .maybeSingle();
+
+      if (existingMessage) {
+        return new Response(JSON.stringify({ ok: true, skipped: "duplicate" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+    }
 
     // Find or create ticket
     let { data: ticket } = await supabase
@@ -55,7 +85,7 @@ serve(async (req) => {
       const { data: newTicket, error } = await supabase.from("tickets").insert({
         store_id: storeId,
         customer_phone: phone,
-        customer_name: senderName,
+        customer_name: senderName || null,
         status: "open",
         sentiment: "neutral",
       }).select().single();
@@ -85,7 +115,7 @@ serve(async (req) => {
     await supabase.from("customer_memory").upsert({
       store_id: storeId,
       customer_phone: phone,
-      customer_name: senderName,
+      customer_name: senderName || null,
       total_interactions: 1,
       updated_at: new Date().toISOString(),
     }, { onConflict: "store_id,customer_phone" });

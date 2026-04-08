@@ -144,6 +144,9 @@ serve(async (req) => {
         else if (lowerContent.match(/(demora|atraso|problema|errado|defeito|não funciona)/)) sentiment = "frustrated";
         else if (lowerContent.match(/(absurd|vergonha|péssimo|horrível|nunca mais|processsar|procon)/)) sentiment = "angry";
 
+        // Clean phone number
+        const cleanPhone = ticket.customer_phone.replace(/\D/g, "");
+
         // Typing indicator - start composing
         const zapiBaseUrl = `https://api.z-api.io/instances/${settings.zapi_instance_id}/token/${settings.zapi_token}`;
         const zapiHeaders = {
@@ -154,7 +157,7 @@ serve(async (req) => {
         await fetch(`${zapiBaseUrl}/send-chat-state`, {
           method: "POST",
           headers: zapiHeaders,
-          body: JSON.stringify({ phone: ticket.customer_phone, chatState: "composing" }),
+          body: JSON.stringify({ phone: cleanPhone, chatState: "composing" }),
         });
 
         // Wait the configured delay
@@ -165,14 +168,14 @@ serve(async (req) => {
         await fetch(`${zapiBaseUrl}/send-text`, {
           method: "POST",
           headers: zapiHeaders,
-          body: JSON.stringify({ phone: ticket.customer_phone, message: responseText }),
+          body: JSON.stringify({ phone: cleanPhone, message: responseText }),
         });
 
         // Stop typing indicator
         await fetch(`${zapiBaseUrl}/send-chat-state`, {
           method: "POST",
           headers: zapiHeaders,
-          body: JSON.stringify({ phone: ticket.customer_phone, chatState: "paused" }),
+          body: JSON.stringify({ phone: cleanPhone, chatState: "paused" }),
         });
 
         // Save outbound message

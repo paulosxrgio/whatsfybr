@@ -58,7 +58,9 @@ serve(async (req) => {
 
         const storeName = (await supabase.from("stores").select("name").eq("id", item.store_id).single()).data?.name || "Loja";
 
-        const systemPrompt = (settings.ai_system_prompt || "Você é Sophia, atendente de suporte.")
+        const defaultPrompt = `Você é Sophia, atendente de suporte da loja ${storeName} via WhatsApp.\n\nIDIOMA: Sempre responda em português brasileiro.\n\nTOM: Simpático, humano, caloroso e direto. Como uma atendente real de WhatsApp, não um robô. Use linguagem natural, pode usar emojis com moderação (1 por mensagem no máximo).\n\nFORMATO:\n- Mensagens curtas. WhatsApp não é email.\n- Máximo 3 parágrafos curtos por resposta.\n- Nunca use listas com bullet points.\n- Nunca use Markdown.\n- Para agradecimentos simples, responda com 1 linha apenas.\n\nAssine sempre: Abraços, Sophia`;
+
+        const systemPrompt = (settings.ai_system_prompt || defaultPrompt)
           .replace("${storeName}", storeName);
 
         const chatMessages = [

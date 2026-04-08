@@ -12,6 +12,7 @@ import SettingsPage from "./pages/Settings";
 import AIAgentPage from "./pages/AIAgent";
 import RequestsPage from "./pages/Requests";
 import AnalyticsPage from "./pages/Analytics";
+import AccountSettingsPage from "./pages/AccountSettings";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -31,6 +32,7 @@ const ProtectedRoutes = () => {
           <Route path="/ai-agent" element={<AIAgentPage />} />
           <Route path="/requests" element={<RequestsPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
+          <Route path="/account-settings" element={<AccountSettingsPage />} />
           <Route path="/" element={<Navigate to="/tickets" replace />} />
         </Route>
         <Route path="*" element={<NotFound />} />

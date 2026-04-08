@@ -40,10 +40,6 @@ type Settings = {
   zapi_instance_id: string;
   zapi_token: string;
   zapi_client_token: string;
-  ai_provider: string;
-  openai_api_key: string;
-  anthropic_api_key: string;
-  ai_model: string;
   ai_system_prompt: string;
   ai_is_active: boolean;
   ai_response_delay: number;
@@ -77,10 +73,6 @@ const SettingsPage = () => {
           zapi_instance_id: "",
           zapi_token: "",
           zapi_client_token: "",
-          ai_provider: "openai",
-          openai_api_key: "",
-          anthropic_api_key: "",
-          ai_model: "gpt-4o",
           ai_system_prompt: DEFAULT_SYSTEM_PROMPT,
           ai_is_active: true,
           ai_response_delay: 2,
@@ -202,41 +194,6 @@ const SettingsPage = () => {
         </CardContent>
       </Card>
 
-      {/* AI Provider */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Provedor de IA</CardTitle>
-          <CardDescription>Configure o provedor e modelo da IA</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label>Provedor</Label>
-            <Select value={settings.ai_provider} onValueChange={(v) => update("ai_provider", v)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="openai">OpenAI</SelectItem>
-                <SelectItem value="anthropic">Anthropic</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          {settings.ai_provider === "openai" && (
-            <div className="space-y-2">
-              <Label>OpenAI API Key</Label>
-              <Input value={settings.openai_api_key} onChange={(e) => update("openai_api_key", e.target.value)} type="password" />
-            </div>
-          )}
-          {settings.ai_provider === "anthropic" && (
-            <div className="space-y-2">
-              <Label>Anthropic API Key</Label>
-              <Input value={settings.anthropic_api_key} onChange={(e) => update("anthropic_api_key", e.target.value)} type="password" />
-            </div>
-          )}
-          <div className="space-y-2">
-            <Label>Modelo</Label>
-            <Input value={settings.ai_model} onChange={(e) => update("ai_model", e.target.value)} placeholder="gpt-4o" />
-          </div>
-        </CardContent>
-      </Card>
 
       {/* AI Agent */}
       <Card>

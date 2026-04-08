@@ -30,6 +30,8 @@ const AccountSettingsPage = () => {
   const [openaiKey, setOpenaiKey] = useState("");
   const [anthropicKey, setAnthropicKey] = useState("");
   const [settingsId, setSettingsId] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [verifyStatus, setVerifyStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
   useEffect(() => {
     if (!user) return;

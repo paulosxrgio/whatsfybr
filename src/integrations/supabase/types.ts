@@ -14,6 +14,39 @@ export type Database = {
   }
   public: {
     Tables: {
+      account_settings: {
+        Row: {
+          ai_model: string | null
+          ai_provider: string | null
+          anthropic_api_key: string | null
+          created_at: string | null
+          id: string
+          openai_api_key: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          ai_model?: string | null
+          ai_provider?: string | null
+          anthropic_api_key?: string | null
+          created_at?: string | null
+          id?: string
+          openai_api_key?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          ai_model?: string | null
+          ai_provider?: string | null
+          anthropic_api_key?: string | null
+          created_at?: string | null
+          id?: string
+          openai_api_key?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       auto_reply_queue: {
         Row: {
           created_at: string | null

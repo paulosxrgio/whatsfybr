@@ -39,6 +39,16 @@ serve(async (req) => {
         if (!settings) { await supabase.from("auto_reply_queue").update({ status: "failed" }).eq("id", item.id); continue; }
         if (!settings.ai_is_active) { await supabase.from("auto_reply_queue").update({ status: "skipped" }).eq("id", item.id); continue; }
 
+        // Fetch account-level AI settings
+        const { data: storeData } = await supabase.from("stores").select("user_id").eq("id", item.store_id).single();
+        if (!storeData) { await supabase.from("auto_reply_queue").update({ status: "failed" }).eq("id", item.id); continue; }
+
+        const { data: acctSettings } = await supabase.from("account_settings").select("*").eq("user_id", storeData.user_id).maybeSingle();
+        const aiProvider = acctSettings?.ai_provider || "openai";
+        const aiModel = acctSettings?.ai_model || "gpt-4o";
+        const openaiApiKey = acctSettings?.openai_api_key || "";
+        const anthropicApiKey = acctSettings?.anthropic_api_key || "";
+
         const { data: ticket } = await supabase.from("tickets").select("*").eq("id", item.ticket_id).single();
         if (!ticket) { await supabase.from("auto_reply_queue").update({ status: "failed" }).eq("id", item.id); continue; }
 

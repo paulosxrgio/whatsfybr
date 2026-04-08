@@ -67,7 +67,17 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="p-4">
+      <SidebarFooter className="p-4 space-y-1">
+        {!collapsed && (
+          <NavLink
+            to="/account-settings"
+            className="flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-muted/50"
+            activeClassName="bg-accent text-accent-foreground font-medium"
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+            <span>Minha Conta</span>
+          </NavLink>
+        )}
         {!collapsed && (
           <Button variant="ghost" className="w-full justify-start gap-2" onClick={signOut}>
             <LogOut className="h-4 w-4" /> Sair

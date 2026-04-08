@@ -32,6 +32,7 @@ const ProtectedRoutes = () => {
           <Route path="/ai-agent" element={<AIAgentPage />} />
           <Route path="/requests" element={<RequestsPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
+          <Route path="/account-settings" element={<AccountSettingsPage />} />
           <Route path="/" element={<Navigate to="/tickets" replace />} />
         </Route>
         <Route path="*" element={<NotFound />} />

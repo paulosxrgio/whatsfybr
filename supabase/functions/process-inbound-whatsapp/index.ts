@@ -181,7 +181,7 @@ serve(async (req) => {
       updated_at: new Date().toISOString(),
     }, { onConflict: "store_id,customer_phone" });
 
-    // Check if AI is active and enqueue
+    // Check if AI is active and enqueue with smart wait
     const { data: settings } = await supabase
       .from("settings")
       .select("ai_is_active, ai_response_delay")
@@ -189,14 +189,41 @@ serve(async (req) => {
       .maybeSingle();
 
     if (settings?.ai_is_active) {
-      const delay = settings.ai_response_delay || 2;
-      const scheduledFor = new Date(Date.now() + delay * 1000).toISOString();
-      await supabase.from("auto_reply_queue").insert({
-        ticket_id: ticket.id,
-        store_id: storeId,
-        status: "pending",
-        scheduled_for: scheduledFor,
-      });
+      const waitMs = 45000; // 45 seconds smart wait
+
+      // Check if there's already a pending queue item for this ticket
+      const { data: existingQueue } = await supabase
+        .from("auto_reply_queue")
+        .select("id, message_count")
+        .eq("ticket_id", ticket.id)
+        .eq("status", "pending")
+        .maybeSingle();
+
+      if (existingQueue) {
+        // Reset timer and increment counter
+        await supabase
+          .from("auto_reply_queue")
+          .update({
+            scheduled_for: new Date(Date.now() + waitMs).toISOString(),
+            message_count: (existingQueue.message_count || 1) + 1,
+            pending_since: new Date().toISOString(),
+          })
+          .eq("id", existingQueue.id);
+
+        console.log(`Timer resetado para ticket ${ticket.id}. Mensagens acumuladas: ${(existingQueue.message_count || 1) + 1}`);
+      } else {
+        // First message — create new queue item
+        await supabase.from("auto_reply_queue").insert({
+          ticket_id: ticket.id,
+          store_id: storeId,
+          status: "pending",
+          scheduled_for: new Date(Date.now() + waitMs).toISOString(),
+          pending_since: new Date().toISOString(),
+          message_count: 1,
+        });
+
+        console.log(`Nova mensagem enfileirada para ticket ${ticket.id}. Aguardando 45s.`);
+      }
     }
 
     console.log("=== WEBHOOK PROCESSADO COM SUCESSO ===", { ticket_id: ticket.id });

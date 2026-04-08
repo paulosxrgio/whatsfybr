@@ -52,12 +52,43 @@ serve(async (req) => {
         const { data: ticket } = await supabase.from("tickets").select("*").eq("id", item.ticket_id).single();
         if (!ticket) { await supabase.from("auto_reply_queue").update({ status: "failed" }).eq("id", item.id); continue; }
 
+        // Find the last outbound message to know where to start consolidating
+        const { data: lastOutbound } = await supabase
+          .from("messages")
+          .select("created_at")
+          .eq("ticket_id", item.ticket_id)
+          .eq("direction", "outbound")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        const lastReplyAt = lastOutbound?.created_at || new Date(0).toISOString();
+
+        // Fetch ALL inbound messages since last reply (consolidated)
+        const { data: pendingMessages } = await supabase
+          .from("messages")
+          .select("content, direction, message_type, created_at")
+          .eq("ticket_id", item.ticket_id)
+          .eq("direction", "inbound")
+          .gt("created_at", lastReplyAt)
+          .order("created_at", { ascending: true });
+
+        const consolidatedInput = pendingMessages
+          ?.map((m, i) => {
+            const prefix = pendingMessages.length > 1 ? `[mensagem ${i + 1}] ` : "";
+            return `${prefix}${m.content || "[mídia]"}`;
+          })
+          .join("\n") || "";
+
+        console.log(`Processando ${pendingMessages?.length || 0} mensagens consolidadas para ticket ${item.ticket_id}`);
+
+        // Also fetch full conversation history for context
         const { data: messages } = await supabase
           .from("messages")
           .select("content, direction, message_type, created_at")
           .eq("ticket_id", item.ticket_id)
           .order("created_at", { ascending: true })
-          .limit(10);
+          .limit(20);
 
         const { data: memory } = await supabase
           .from("customer_memory")
@@ -76,6 +107,14 @@ serve(async (req) => {
         const chatMessages = [
           { role: "system", content: systemPrompt },
         ];
+
+        // Add consolidation note if multiple messages
+        if (pendingMessages && pendingMessages.length > 1) {
+          chatMessages.push({
+            role: "system",
+            content: `ATENÇÃO: O cliente enviou ${pendingMessages.length} mensagens seguidas antes de você responder. Responda tudo de forma natural e coesa em uma única mensagem, como se fosse uma conversa fluida. Não numere as respostas nem mencione que eram várias mensagens.`,
+          });
+        }
 
         if (memory) {
           chatMessages.push({

@@ -88,9 +88,9 @@ serve(async (req) => {
     }
 
     // Find or create ticket
-    let { data: ticket } = await supabase
+    const { data: existingTicket } = await supabase
       .from("tickets")
-      .select("*")
+      .select("id, customer_name")
       .eq("store_id", storeId)
       .eq("customer_phone", phone)
       .eq("status", "open")
@@ -98,29 +98,42 @@ serve(async (req) => {
       .limit(1)
       .maybeSingle();
 
-    console.log("Ticket existente:", ticket?.id || "nenhum");
+    let ticketId: string;
 
-    if (!ticket) {
-      const { data: newTicket, error } = await supabase.from("tickets").insert({
-        store_id: storeId,
-        customer_phone: phone,
-        customer_name: senderName || null,
-        status: "open",
-        sentiment: "neutral",
-      }).select().single();
+    if (existingTicket) {
+      ticketId = existingTicket.id;
+      await supabase
+        .from("tickets")
+        .update({
+          last_message_at: new Date().toISOString(),
+          customer_name: senderName || existingTicket.customer_name,
+        })
+        .eq("id", ticketId);
+      console.log(`Ticket existente reutilizado: ${ticketId} para ${phone}`);
+    } else {
+      const { data: newTicket, error } = await supabase
+        .from("tickets")
+        .insert({
+          store_id: storeId,
+          customer_phone: phone,
+          customer_name: senderName || "",
+          status: "open",
+          sentiment: "neutral",
+          last_message_at: new Date().toISOString(),
+        })
+        .select()
+        .single();
 
-      if (error) {
+      if (error || !newTicket) {
         console.error("Erro ao criar ticket:", error);
-        throw error;
+        return new Response(JSON.stringify({ error: "Failed to create ticket" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
-      ticket = newTicket;
-      console.log("Novo ticket criado:", ticket.id);
-    } else if (senderName && !ticket.customer_name) {
-      await supabase.from("tickets").update({ customer_name: senderName }).eq("id", ticket.id);
+      ticketId = newTicket.id;
+      console.log(`Novo ticket criado: ${ticketId} para ${phone}`);
     }
-
-    // Update last_message_at
-    await supabase.from("tickets").update({ last_message_at: new Date().toISOString() }).eq("id", ticket.id);
 
     // If audio, transcribe before saving
     let content = messageText;

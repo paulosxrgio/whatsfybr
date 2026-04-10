@@ -170,7 +170,7 @@ serve(async (req) => {
 
     // Save inbound message
     const { error: msgError } = await supabase.from("messages").insert({
-      ticket_id: ticket.id,
+      ticket_id: ticketId,
       store_id: storeId,
       content,
       direction: "inbound",
@@ -208,7 +208,7 @@ serve(async (req) => {
       const { data: existingQueue } = await supabase
         .from("auto_reply_queue")
         .select("id, message_count")
-        .eq("ticket_id", ticket.id)
+        .eq("ticket_id", ticketId)
         .eq("status", "pending")
         .maybeSingle();
 
@@ -223,11 +223,11 @@ serve(async (req) => {
           })
           .eq("id", existingQueue.id);
 
-        console.log(`Timer resetado para ticket ${ticket.id}. Mensagens acumuladas: ${(existingQueue.message_count || 1) + 1}`);
+        console.log(`Timer resetado para ticket ${ticketId}. Mensagens acumuladas: ${(existingQueue.message_count || 1) + 1}`);
       } else {
         // First message — create new queue item
         await supabase.from("auto_reply_queue").insert({
-          ticket_id: ticket.id,
+          ticket_id: ticketId,
           store_id: storeId,
           status: "pending",
           scheduled_for: new Date(Date.now() + waitMs).toISOString(),
@@ -235,13 +235,13 @@ serve(async (req) => {
           message_count: 1,
         });
 
-        console.log(`Nova mensagem enfileirada para ticket ${ticket.id}. Aguardando 45s.`);
+        console.log(`Nova mensagem enfileirada para ticket ${ticketId}. Aguardando 45s.`);
       }
     }
 
-    console.log("=== WEBHOOK PROCESSADO COM SUCESSO ===", { ticket_id: ticket.id });
+    console.log("=== WEBHOOK PROCESSADO COM SUCESSO ===", { ticket_id: ticketId });
 
-    return new Response(JSON.stringify({ ok: true, ticket_id: ticket.id }), {
+    return new Response(JSON.stringify({ ok: true, ticket_id: ticketId }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {

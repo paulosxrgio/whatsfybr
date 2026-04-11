@@ -99,7 +99,118 @@ serve(async (req) => {
 
         const storeName = (await supabase.from("stores").select("name").eq("id", item.store_id).single()).data?.name || "Loja";
 
-        const defaultPrompt = `Você é Sophia, atendente de suporte da loja ${storeName} via WhatsApp.
+        // Detect intent
+        const conversationHistory = messages?.slice(-3).map(m => m.content || "").filter(Boolean) || [];
+        const intentDetectionPrompt = `Analise a mensagem abaixo e classifique a intenção em UMA palavra:
+
+- "support" = cliente já comprou e tem problema (entrega, reembolso, rastreio, reclamação)
+- "sales" = cliente está interessado em comprar, tirando dúvidas sobre produto, preço, disponibilidade
+- "unclear" = não dá para determinar ainda
+
+Mensagem: "${consolidatedInput}"
+Histórico recente: "${conversationHistory.slice(-2).join(' | ')}"
+
+Responda SOMENTE uma palavra: support, sales ou unclear`;
+
+        let intent = "unclear";
+        try {
+          let intentRaw = "";
+          if (aiProvider === "openai") {
+            const res = await fetch("https://api.openai.com/v1/chat/completions", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${openaiApiKey}` },
+              body: JSON.stringify({ model: aiModel, messages: [{ role: "user", content: intentDetectionPrompt }], max_tokens: 10 }),
+            });
+            const data = await res.json();
+            intentRaw = data.choices?.[0]?.message?.content || "";
+          } else if (aiProvider === "anthropic") {
+            const res = await fetch("https://api.anthropic.com/v1/messages", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "x-api-key": anthropicApiKey, "anthropic-version": "2023-06-01" },
+              body: JSON.stringify({ model: aiModel, max_tokens: 10, messages: [{ role: "user", content: intentDetectionPrompt }] }),
+            });
+            const data = await res.json();
+            intentRaw = data.content?.[0]?.text || "";
+          }
+          const lower = intentRaw.trim().toLowerCase();
+          intent = lower.includes("sales") ? "sales" : lower.includes("support") ? "support" : "unclear";
+        } catch (e) {
+          console.error("Intent detection error:", e);
+        }
+
+        console.log(`Intenção detectada: ${intent} para ticket ${item.ticket_id}`);
+        await supabase.from("tickets").update({ intent }).eq("id", item.ticket_id);
+
+        // Build dynamic prompt
+        const salesModePrompt = `
+━━━━━━━━━━━━━━━━━━━━━━
+MODO ATIVO: VENDEDORA + COPYWRITER
+━━━━━━━━━━━━━━━━━━━━━━
+
+Este cliente está interessado em comprar. Seu objetivo agora é fazer ele QUERER comprar e fechar.
+
+MENTALIDADE:
+Você é uma vendedora apaixonada pela marca que genuinamente acredita no produto. Não empurra — encanta. Você entende o problema do cliente e mostra como o produto resolve especificamente aquele problema.
+
+TÉCNICAS QUE VOCÊ DEVE USAR:
+
+1. PROVA SOCIAL — mencione naturalmente que outras pessoas adoram:
+"A maioria dos nossos clientes que tinha essa mesma dúvida ficou surpresa com..."
+"Estamos recebendo muito feedback positivo justamente sobre isso"
+
+2. ESPECIFICIDADE — nunca seja genérica. Se o cliente perguntou sobre o produto X, responda sobre o produto X com detalhes concretos.
+
+3. ANTECIPE OBJEÇÕES — se o cliente hesitar, aborde o medo antes dele falar:
+"Sei que pode parecer caro à primeira vista, mas quando você vê a qualidade..."
+"Muita gente fica em dúvida sobre o tamanho, mas temos troca grátis"
+
+4. URGÊNCIA NATURAL — nunca force, mas crie contexto:
+"Esse modelo em específico tem saído bastante esta semana"
+"Temos estoque limitado dessa versão"
+
+5. PRÓXIMO PASSO CLARO — sempre feche com uma pergunta ou ação:
+"Posso te enviar o link direto para finalizar?"
+"Qual seria o melhor endereço para entrega?"
+"Prefere pagar no cartão ou PIX?"
+
+FORMATO:
+Mensagens curtas e entusiasmadas, mas sem parecer desespero.
+Máximo 3 parágrafos.
+Um emoji por mensagem quando for natural.
+Nunca use bullet points.
+
+NUNCA:
+- Prometa o que não pode cumprir
+- Invente informações sobre o produto
+- Force a venda de forma óbvia
+- Seja genérica ("ótima escolha!", "com certeza!")`;
+
+        const supportModePrompt = `
+━━━━━━━━━━━━━━━━━━━━━━
+MODO ATIVO: SUPORTE
+━━━━━━━━━━━━━━━━━━━━━━
+
+Este cliente já comprou e precisa de ajuda. Seu objetivo é resolver o problema e deixar o cliente satisfeito.
+
+PRIORIDADE: resolver. Não vender.
+
+Siga as regras de suporte do sistema. Reconheça, informe, próximo passo.
+Tom: calmo, empático, eficiente.`;
+
+        const unclearModePrompt = `
+━━━━━━━━━━━━━━━━━━━━━━
+MODO ATIVO: IDENTIFICAÇÃO
+━━━━━━━━━━━━━━━━━━━━━━
+
+Ainda não está claro se este cliente quer suporte ou está interessado em comprar.
+Responda de forma amigável e tente entender a necessidade dele com UMA pergunta natural.
+Não force nenhum dos dois modos ainda.`;
+
+        const modePrompt = intent === "sales" ? salesModePrompt
+          : intent === "support" ? supportModePrompt
+          : unclearModePrompt;
+
+        const baseSystemPrompt = `Você é Sophia, atendente da loja ${storeName} via WhatsApp.
 
 ━━━━━━━━━━━━━━━━━━━━━━
 PRINCÍPIOS FUNDAMENTAIS
@@ -255,8 +366,7 @@ Use naturalmente quando apropriado:
 - "Já cuido disso"
 - "Me conta mais"`;
 
-        const systemPrompt = (settings.ai_system_prompt || defaultPrompt)
-          .replace("${storeName}", storeName);
+        const systemPrompt = `${baseSystemPrompt}\n\n${modePrompt}${settings.ai_system_prompt ? `\n\n━━━━━━━━━━━━━━━━━━━━━━\nREGRAS ESPECÍFICAS DESTA LOJA\n━━━━━━━━━━━━━━━━━━━━━━\n\n${settings.ai_system_prompt}` : ""}`;
 
         const chatMessages = [
           { role: "system", content: systemPrompt },

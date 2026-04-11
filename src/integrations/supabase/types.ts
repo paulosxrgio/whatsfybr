@@ -336,6 +336,7 @@ export type Database = {
           customer_name: string | null
           customer_phone: string
           id: string
+          intent: string | null
           last_message_at: string | null
           sentiment: string | null
           status: string | null
@@ -346,6 +347,7 @@ export type Database = {
           customer_name?: string | null
           customer_phone: string
           id?: string
+          intent?: string | null
           last_message_at?: string | null
           sentiment?: string | null
           status?: string | null
@@ -356,6 +358,7 @@ export type Database = {
           customer_name?: string | null
           customer_phone?: string
           id?: string
+          intent?: string | null
           last_message_at?: string | null
           sentiment?: string | null
           status?: string | null

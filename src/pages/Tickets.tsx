@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Bot, Search, Phone, CheckCircle, RefreshCw, Globe, StickyNote, MessageSquare, CheckCheck, Loader2, Clock } from "lucide-react";
+import { Send, Bot, Search, Phone, CheckCircle, RefreshCw, Globe, StickyNote, MessageSquare, CheckCheck, Loader2, Clock, TrendingUp, Headphones, HelpCircle } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { format, isToday, isSameDay } from "date-fns";
@@ -20,6 +20,7 @@ type Ticket = {
   sentiment: string | null;
   last_message_at: string | null;
   created_at: string | null;
+  intent?: string | null;
   hasPendingQueue?: boolean;
   pendingMessageCount?: number;
 };
@@ -346,6 +347,24 @@ const TicketsPage = () => {
                   <span className="flex items-center gap-1 text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full">
                     <Bot className="w-3 h-3" />
                     IA ativa
+                  </span>
+                )}
+                {selectedTicket.intent === "sales" && (
+                  <span className="flex items-center gap-1 text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
+                    <TrendingUp className="w-3 h-3" />
+                    Modo Vendas
+                  </span>
+                )}
+                {selectedTicket.intent === "support" && (
+                  <span className="flex items-center gap-1 text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
+                    <Headphones className="w-3 h-3" />
+                    Modo Suporte
+                  </span>
+                )}
+                {(selectedTicket.intent === "unclear" || !selectedTicket.intent) && (
+                  <span className="flex items-center gap-1 text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full">
+                    <HelpCircle className="w-3 h-3" />
+                    Identificando
                   </span>
                 )}
                 <span className={`text-xs px-2 py-1 rounded-full ${

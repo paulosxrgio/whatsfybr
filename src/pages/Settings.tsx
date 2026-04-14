@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Copy, CheckCircle, Loader2, Info, Wifi, Activity } from "lucide-react";
+import { Copy, CheckCircle, Loader2, Info, Wifi, Activity, Zap } from "lucide-react";
 
 const DEFAULT_SYSTEM_PROMPT = `Você é Sophia, atendente de suporte da loja via WhatsApp.
 
@@ -46,6 +46,7 @@ type Settings = {
   shopify_store_url: string;
   shopify_client_id: string;
   shopify_client_secret: string;
+  notify_order_fulfilled: boolean;
 };
 
 const SettingsPage = () => {
@@ -79,6 +80,7 @@ const SettingsPage = () => {
           shopify_store_url: "",
           shopify_client_id: "",
           shopify_client_secret: "",
+          notify_order_fulfilled: false,
         });
       }
       setLoading(false);

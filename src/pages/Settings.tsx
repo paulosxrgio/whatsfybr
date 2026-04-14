@@ -279,6 +279,55 @@ const SettingsPage = () => {
         </CardContent>
       </Card>
 
+      {/* Automações */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Zap className="h-5 w-5" />
+            Automações
+          </CardTitle>
+          <CardDescription>Mensagens automáticas via WhatsApp</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <Label>Pedido Enviado</Label>
+              <p className="text-xs text-muted-foreground">Envia mensagem automática quando um pedido é marcado como enviado na Shopify</p>
+            </div>
+            <Switch checked={settings.notify_order_fulfilled} onCheckedChange={(v) => update("notify_order_fulfilled", v)} />
+          </div>
+
+          {settings.notify_order_fulfilled && (
+            <>
+              <div className="space-y-2">
+                <Label>URL do Webhook Shopify (copie para a Shopify)</Label>
+                <div className="flex gap-2">
+                  <Input value={shopifyWebhookUrl} readOnly className="text-xs" />
+                  <Button variant="outline" size="icon" onClick={() => { navigator.clipboard.writeText(shopifyWebhookUrl); toast.success("URL copiada!"); }}>
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="rounded-lg border bg-muted/50 p-4 space-y-2">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Info className="h-4 w-4 text-primary" />
+                  Como configurar na Shopify
+                </div>
+                <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
+                  <li>Acesse o painel da Shopify → Configurações → Notificações</li>
+                  <li>Vá em Webhooks e clique em "Criar webhook"</li>
+                  <li>Evento: <strong>Fulfillment creation</strong> (ou "Order fulfillment")</li>
+                  <li>Formato: <strong>JSON</strong></li>
+                  <li>Cole a URL acima no campo de URL</li>
+                  <li>Clique em Salvar</li>
+                </ol>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
       <Button onClick={handleSave} disabled={saving} className="w-full">
         {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
         Salvar Configurações

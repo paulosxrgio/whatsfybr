@@ -135,6 +135,10 @@ const SettingsPage = () => {
     ? `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/process-inbound-whatsapp?store_id=${currentStore.id}`
     : "";
 
+  const shopifyWebhookUrl = currentStore
+    ? `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/process-shopify-webhook?store_id=${currentStore.id}`
+    : "";
+
   if (loading || !settings) {
     return <div className="flex items-center justify-center h-full"><Loader2 className="h-6 w-6 animate-spin" /></div>;
   }

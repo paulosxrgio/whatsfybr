@@ -254,6 +254,7 @@ export type Database = {
           anthropic_api_key: string | null
           created_at: string | null
           id: string
+          notify_order_fulfilled: boolean | null
           openai_api_key: string | null
           shopify_client_id: string | null
           shopify_client_secret: string | null
@@ -272,6 +273,7 @@ export type Database = {
           anthropic_api_key?: string | null
           created_at?: string | null
           id?: string
+          notify_order_fulfilled?: boolean | null
           openai_api_key?: string | null
           shopify_client_id?: string | null
           shopify_client_secret?: string | null
@@ -290,6 +292,7 @@ export type Database = {
           anthropic_api_key?: string | null
           created_at?: string | null
           id?: string
+          notify_order_fulfilled?: boolean | null
           openai_api_key?: string | null
           shopify_client_id?: string | null
           shopify_client_secret?: string | null
@@ -389,6 +392,60 @@ export type Database = {
           id?: string
           role?: Database["public"]["Enums"]["app_role"]
           user_id?: string
+        }
+        Relationships: []
+      }
+      whatsapp_notifications: {
+        Row: {
+          carrier: string | null
+          created_at: string | null
+          customer_name: string | null
+          customer_phone: string
+          error_message: string | null
+          event_type: string
+          id: string
+          message_content: string | null
+          order_number: string | null
+          sent_at: string | null
+          shopify_order_id: string
+          status: string
+          store_id: string
+          tracking_code: string | null
+          tracking_url: string | null
+        }
+        Insert: {
+          carrier?: string | null
+          created_at?: string | null
+          customer_name?: string | null
+          customer_phone: string
+          error_message?: string | null
+          event_type?: string
+          id?: string
+          message_content?: string | null
+          order_number?: string | null
+          sent_at?: string | null
+          shopify_order_id: string
+          status?: string
+          store_id: string
+          tracking_code?: string | null
+          tracking_url?: string | null
+        }
+        Update: {
+          carrier?: string | null
+          created_at?: string | null
+          customer_name?: string | null
+          customer_phone?: string
+          error_message?: string | null
+          event_type?: string
+          id?: string
+          message_content?: string | null
+          order_number?: string | null
+          sent_at?: string | null
+          shopify_order_id?: string
+          status?: string
+          store_id?: string
+          tracking_code?: string | null
+          tracking_url?: string | null
         }
         Relationships: []
       }

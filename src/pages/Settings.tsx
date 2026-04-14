@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Copy, CheckCircle, Loader2, Info, Wifi, Activity } from "lucide-react";
+import { Copy, CheckCircle, Loader2, Info, Wifi, Activity, Zap } from "lucide-react";
 
 const DEFAULT_SYSTEM_PROMPT = `Você é Sophia, atendente de suporte da loja via WhatsApp.
 
@@ -46,6 +46,7 @@ type Settings = {
   shopify_store_url: string;
   shopify_client_id: string;
   shopify_client_secret: string;
+  notify_order_fulfilled: boolean;
 };
 
 const SettingsPage = () => {
@@ -79,6 +80,7 @@ const SettingsPage = () => {
           shopify_store_url: "",
           shopify_client_id: "",
           shopify_client_secret: "",
+          notify_order_fulfilled: false,
         });
       }
       setLoading(false);
@@ -131,6 +133,10 @@ const SettingsPage = () => {
 
   const webhookUrl = currentStore
     ? `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/process-inbound-whatsapp?store_id=${currentStore.id}`
+    : "";
+
+  const shopifyWebhookUrl = currentStore
+    ? `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/process-shopify-webhook?store_id=${currentStore.id}`
     : "";
 
   if (loading || !settings) {
@@ -270,6 +276,55 @@ const SettingsPage = () => {
             <Label>Client Secret</Label>
             <Input value={settings.shopify_client_secret} onChange={(e) => update("shopify_client_secret", e.target.value)} type="password" />
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Automações */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Zap className="h-5 w-5" />
+            Automações
+          </CardTitle>
+          <CardDescription>Mensagens automáticas via WhatsApp</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <Label>Pedido Enviado</Label>
+              <p className="text-xs text-muted-foreground">Envia mensagem automática quando um pedido é marcado como enviado na Shopify</p>
+            </div>
+            <Switch checked={settings.notify_order_fulfilled} onCheckedChange={(v) => update("notify_order_fulfilled", v)} />
+          </div>
+
+          {settings.notify_order_fulfilled && (
+            <>
+              <div className="space-y-2">
+                <Label>URL do Webhook Shopify (copie para a Shopify)</Label>
+                <div className="flex gap-2">
+                  <Input value={shopifyWebhookUrl} readOnly className="text-xs" />
+                  <Button variant="outline" size="icon" onClick={() => { navigator.clipboard.writeText(shopifyWebhookUrl); toast.success("URL copiada!"); }}>
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="rounded-lg border bg-muted/50 p-4 space-y-2">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Info className="h-4 w-4 text-primary" />
+                  Como configurar na Shopify
+                </div>
+                <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
+                  <li>Acesse o painel da Shopify → Configurações → Notificações</li>
+                  <li>Vá em Webhooks e clique em "Criar webhook"</li>
+                  <li>Evento: <strong>Fulfillment creation</strong> (ou "Order fulfillment")</li>
+                  <li>Formato: <strong>JSON</strong></li>
+                  <li>Cole a URL acima no campo de URL</li>
+                  <li>Clique em Salvar</li>
+                </ol>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
 

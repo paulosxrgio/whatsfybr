@@ -5,6 +5,40 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Obtém access token via client_credentials grant
+async function getAccessToken(
+  storeUrl: string,
+  clientId: string,
+  clientSecret: string
+): Promise<string | null> {
+  const tokenUrl = `https://${storeUrl}/admin/oauth/access_token`;
+  try {
+    const res = await fetch(tokenUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        grant_type: "client_credentials",
+      }).toString(),
+    });
+    if (!res.ok) {
+      console.error(`[Shopify] Token HTTP ${res.status}: ${await res.text()}`);
+      return null;
+    }
+    const data = await res.json();
+    if (!data.access_token) {
+      console.error(`[Shopify] Token response sem access_token:`, JSON.stringify(data));
+      return null;
+    }
+    console.log(`[Shopify] Access token obtido com sucesso`);
+    return data.access_token;
+  } catch (e) {
+    console.error(`[Shopify] Erro ao obter token:`, e);
+    return null;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -27,7 +61,7 @@ Deno.serve(async (req) => {
 
     const { data: settings } = await supabase
       .from("settings")
-      .select("shopify_store_url, shopify_client_secret")
+      .select("shopify_store_url, shopify_client_id, shopify_client_secret")
       .eq("store_id", store_id)
       .maybeSingle();
 
@@ -43,9 +77,25 @@ Deno.serve(async (req) => {
       .replace(/\/admin.*$/, "")
       .replace(/\/+$/, "");
 
-    const accessToken = settings.shopify_client_secret;
+    // Determinar access token: se é shpat_ usa direto, senão faz client_credentials
+    let accessToken: string | null = null;
+    if (settings.shopify_client_secret.startsWith("shpat_")) {
+      accessToken = settings.shopify_client_secret;
+      console.log(`[Shopify] Usando access token direto (shpat_)`);
+    } else if (settings.shopify_client_id && settings.shopify_client_secret) {
+      accessToken = await getAccessToken(shopifyUrl, settings.shopify_client_id, settings.shopify_client_secret);
+    }
+
+    if (!accessToken) {
+      console.error(`[Shopify] Não foi possível obter access token`);
+      return new Response(
+        JSON.stringify({ orders: [], error: "Token inválido" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const graphqlEndpoint = `https://${shopifyUrl}/admin/api/2024-01/graphql.json`;
-    const headers = {
+    const gqlHeaders = {
       "X-Shopify-Access-Token": accessToken,
       "Content-Type": "application/json",
     };
@@ -61,7 +111,6 @@ Deno.serve(async (req) => {
 
     const withoutCountry = cleanPhone.startsWith("55") ? cleanPhone.slice(2) : cleanPhone;
 
-    // Variantes SEM aspas na query, igual ao admin do Shopify
     const phoneVariants = [
       cleanPhone,
       withoutCountry,
@@ -71,27 +120,43 @@ Deno.serve(async (req) => {
     let customerId: string | null = null;
     let customerName = "";
 
-    // ESTRATÉGIA 1: Buscar cliente via REST customers/search (sem prefixo phone:)
+    // Buscar cliente via GraphQL
     for (const phone of phoneVariants) {
       try {
-        const res = await fetch(
-          `https://${shopifyUrl}/admin/api/2024-01/customers/search.json?query=${encodeURIComponent(phone)}&limit=5&fields=id,first_name,last_name,phone,email`,
-          {
-            headers: {
-              "X-Shopify-Access-Token": accessToken,
-              "Content-Type": "application/json",
-            },
-          }
-        );
-        if (res.ok) {
-          const data = await res.json();
-          console.log(`[Shopify] Busca "${phone}": ${data.customers?.length || 0} resultados`);
-          if (data.customers?.length > 0) {
-            customerId = String(data.customers[0].id);
-            customerName = `${data.customers[0].first_name || ""} ${data.customers[0].last_name || ""}`.trim();
-            console.log(`[Shopify] ENCONTRADO: ${customerId} — ${customerName} — ${data.customers[0].phone}`);
-            break;
-          }
+        const res = await fetch(graphqlEndpoint, {
+          method: "POST",
+          headers: gqlHeaders,
+          body: JSON.stringify({
+            query: `{
+              customers(first: 5, query: "${phone}") {
+                edges {
+                  node {
+                    id
+                    firstName
+                    lastName
+                    phone
+                  }
+                }
+              }
+            }`
+          }),
+        });
+        if (!res.ok) {
+          console.error(`[Shopify] GraphQL HTTP ${res.status} para "${phone}": ${await res.text()}`);
+          continue;
+        }
+        const data = await res.json();
+        if (data.errors) {
+          console.error(`[Shopify] GraphQL errors para "${phone}":`, JSON.stringify(data.errors));
+          continue;
+        }
+        const customers = data?.data?.customers?.edges || [];
+        console.log(`[Shopify] Busca "${phone}": ${customers.length} resultados`);
+        if (customers.length > 0) {
+          customerId = customers[0].node.id;
+          customerName = `${customers[0].node.firstName || ""} ${customers[0].node.lastName || ""}`.trim();
+          console.log(`[Shopify] ENCONTRADO: ${customerId} — ${customerName} — ${customers[0].node.phone}`);
+          break;
         }
       } catch (e) {
         console.error(`[Shopify] Erro variante ${phone}:`, e);
@@ -106,40 +171,76 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Com o customerId em mãos, buscar os pedidos desse cliente via REST
-    const ordersRes = await fetch(
-      `https://${shopifyUrl}/admin/api/2024-01/orders.json?customer_id=${customerId}&status=any&limit=10&fields=id,order_number,name,financial_status,fulfillment_status,total_price,currency,created_at,email,line_items,fulfillments`,
-      {
-        headers: {
-          "X-Shopify-Access-Token": accessToken,
-          "Content-Type": "application/json",
-        },
-      }
-    );
+    // Buscar pedidos do cliente
+    const ordersRes = await fetch(graphqlEndpoint, {
+      method: "POST",
+      headers: gqlHeaders,
+      body: JSON.stringify({
+        query: `{
+          customer(id: "${customerId}") {
+            orders(first: 10, sortKey: CREATED_AT, reverse: true) {
+              edges {
+                node {
+                  id
+                  name
+                  displayFinancialStatus
+                  displayFulfillmentStatus
+                  totalPriceSet { shopMoney { amount currencyCode } }
+                  createdAt
+                  email
+                  lineItems(first: 10) {
+                    edges {
+                      node {
+                        title
+                        quantity
+                        originalUnitPriceSet { shopMoney { amount currencyCode } }
+                        variant { title }
+                      }
+                    }
+                  }
+                  fulfillments(first: 5) {
+                    trackingInfo(first: 1) { number url }
+                    status
+                  }
+                }
+              }
+            }
+          }
+        }`
+      }),
+    });
+
+    if (!ordersRes.ok) {
+      console.error(`[Shopify] Orders GraphQL HTTP ${ordersRes.status}: ${await ordersRes.text()}`);
+      return new Response(
+        JSON.stringify({ orders: [], error: "Erro ao buscar pedidos" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     const ordersData = await ordersRes.json();
-    const orders = ordersData?.orders || [];
+    const orders = ordersData?.data?.customer?.orders?.edges?.map((e: any) => e.node) || [];
 
     console.log(`[Shopify] ${orders.length} pedidos encontrados para customer ${customerId}`);
 
     const formatted = orders.map((o: any) => ({
       id: o.id,
-      order_number: o.order_number,
+      order_number: o.name?.replace("#", ""),
       name: o.name,
-      status: o.fulfillment_status || "unfulfilled",
-      financial_status: o.financial_status || "pending",
-      total_price: o.total_price,
-      currency: o.currency,
-      created_at: o.created_at,
+      status: o.displayFulfillmentStatus?.toLowerCase() || "unfulfilled",
+      financial_status: o.displayFinancialStatus?.toLowerCase() || "pending",
+      total_price: o.totalPriceSet?.shopMoney?.amount,
+      currency: o.totalPriceSet?.shopMoney?.currencyCode,
+      created_at: o.createdAt,
       customer_email: o.email,
       customer_name: customerName,
-      tracking_number: o.fulfillments?.[0]?.tracking_number || null,
-      tracking_url: o.fulfillments?.[0]?.tracking_url || null,
-      items: o.line_items?.map((i: any) => ({
-        title: i.title,
-        quantity: i.quantity,
-        price: i.price,
-        variant_title: i.variant_title,
+      tracking_number: o.fulfillments?.[0]?.trackingInfo?.[0]?.number || null,
+      tracking_url: o.fulfillments?.[0]?.trackingInfo?.[0]?.url || null,
+      items: o.lineItems?.edges?.map((e: any) => ({
+        title: e.node.title,
+        quantity: e.node.quantity,
+        price: e.node.originalUnitPriceSet?.shopMoney?.amount,
+        variant_title: e.node.variant?.title,
       })) || [],
     }));
 

@@ -5,6 +5,40 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Obtém access token via client_credentials grant
+async function getAccessToken(
+  storeUrl: string,
+  clientId: string,
+  clientSecret: string
+): Promise<string | null> {
+  const tokenUrl = `https://${storeUrl}/admin/oauth/access_token`;
+  try {
+    const res = await fetch(tokenUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        grant_type: "client_credentials",
+      }).toString(),
+    });
+    if (!res.ok) {
+      console.error(`[Shopify] Token HTTP ${res.status}: ${await res.text()}`);
+      return null;
+    }
+    const data = await res.json();
+    if (!data.access_token) {
+      console.error(`[Shopify] Token response sem access_token:`, JSON.stringify(data));
+      return null;
+    }
+    console.log(`[Shopify] Access token obtido com sucesso`);
+    return data.access_token;
+  } catch (e) {
+    console.error(`[Shopify] Erro ao obter token:`, e);
+    return null;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -27,7 +61,7 @@ Deno.serve(async (req) => {
 
     const { data: settings } = await supabase
       .from("settings")
-      .select("shopify_store_url, shopify_client_secret")
+      .select("shopify_store_url, shopify_client_id, shopify_client_secret")
       .eq("store_id", store_id)
       .maybeSingle();
 
@@ -43,7 +77,23 @@ Deno.serve(async (req) => {
       .replace(/\/admin.*$/, "")
       .replace(/\/+$/, "");
 
-    const accessToken = settings.shopify_client_secret;
+    // Determinar access token: se é shpat_ usa direto, senão faz client_credentials
+    let accessToken: string | null = null;
+    if (settings.shopify_client_secret.startsWith("shpat_")) {
+      accessToken = settings.shopify_client_secret;
+      console.log(`[Shopify] Usando access token direto (shpat_)`);
+    } else if (settings.shopify_client_id && settings.shopify_client_secret) {
+      accessToken = await getAccessToken(shopifyUrl, settings.shopify_client_id, settings.shopify_client_secret);
+    }
+
+    if (!accessToken) {
+      console.error(`[Shopify] Não foi possível obter access token`);
+      return new Response(
+        JSON.stringify({ orders: [], error: "Token inválido" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const graphqlEndpoint = `https://${shopifyUrl}/admin/api/2024-01/graphql.json`;
     const gqlHeaders = {
       "X-Shopify-Access-Token": accessToken,
@@ -61,7 +111,6 @@ Deno.serve(async (req) => {
 
     const withoutCountry = cleanPhone.startsWith("55") ? cleanPhone.slice(2) : cleanPhone;
 
-    // Variantes sem aspas — busca ampla
     const phoneVariants = [
       cleanPhone,
       withoutCountry,
@@ -71,7 +120,7 @@ Deno.serve(async (req) => {
     let customerId: string | null = null;
     let customerName = "";
 
-    // ESTRATÉGIA 1: Buscar cliente via GraphQL — query sem aspas, igual ao admin
+    // Buscar cliente via GraphQL
     for (const phone of phoneVariants) {
       try {
         const res = await fetch(graphqlEndpoint, {
@@ -93,8 +142,7 @@ Deno.serve(async (req) => {
           }),
         });
         if (!res.ok) {
-          const errBody = await res.text();
-          console.error(`[Shopify] GraphQL HTTP ${res.status} para "${phone}": ${errBody}`);
+          console.error(`[Shopify] GraphQL HTTP ${res.status} para "${phone}": ${await res.text()}`);
           continue;
         }
         const data = await res.json();
@@ -123,7 +171,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // ESTRATÉGIA 2: Buscar pedidos do cliente via GraphQL (customerId já é GID)
+    // Buscar pedidos do cliente
     const ordersRes = await fetch(graphqlEndpoint, {
       method: "POST",
       headers: gqlHeaders,
@@ -163,8 +211,7 @@ Deno.serve(async (req) => {
     });
 
     if (!ordersRes.ok) {
-      const errBody = await ordersRes.text();
-      console.error(`[Shopify] Orders GraphQL HTTP ${ordersRes.status}: ${errBody}`);
+      console.error(`[Shopify] Orders GraphQL HTTP ${ordersRes.status}: ${await ordersRes.text()}`);
       return new Response(
         JSON.stringify({ orders: [], error: "Erro ao buscar pedidos" }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }

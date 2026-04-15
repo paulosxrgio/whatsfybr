@@ -60,63 +60,16 @@ Deno.serve(async (req) => {
     }
 
     const withoutCountry = cleanPhone.startsWith("55") ? cleanPhone.slice(2) : cleanPhone;
-    const ddd = withoutCountry.slice(0, 2);
-    const num = withoutCountry.slice(2);
 
+    // Variantes SEM aspas na query, igual ao admin do Shopify
     const phoneVariants = [
-      `+55${withoutCountry}`,
-      `+55 ${ddd} ${num.slice(0, 5)}-${num.slice(5)}`,
-      `+55 ${ddd} ${num}`,
-      `55${withoutCountry}`,
-      withoutCountry,
       cleanPhone,
-    ].filter((v, i, arr) => v && arr.indexOf(v) === i);
+      withoutCountry,
+      `+${cleanPhone}`,
+    ];
 
-    // GraphQL query para buscar cliente por telefone
-    const customerQuery = (phone: string) => JSON.stringify({
-      query: `{
-        customers(first: 5, query: "phone:\\"${phone}\\"") {
-          edges {
-            node {
-              id
-              firstName
-              lastName
-              email
-              phone
-              orders(first: 10, sortKey: CREATED_AT, reverse: true) {
-                edges {
-                  node {
-                    id
-                    name
-                    displayFinancialStatus
-                    displayFulfillmentStatus
-                    totalPriceSet { shopMoney { amount currencyCode } }
-                    createdAt
-                    email
-                    lineItems(first: 10) {
-                      edges {
-                        node {
-                          title
-                          quantity
-                          originalUnitPriceSet { shopMoney { amount currencyCode } }
-                          variant { title }
-                        }
-                      }
-                    }
-                    fulfillments(first: 5) {
-                      trackingInfo(first: 1) { number url }
-                      status
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }`
-    });
-
-    let customerNode: any = null;
+    let customerId: string | null = null;
+    let customerName = "";
 
     // ESTRATÉGIA 1: Buscar cliente via GraphQL por cada variante de telefone
     for (const phone of phoneVariants) {
@@ -124,57 +77,15 @@ Deno.serve(async (req) => {
         const res = await fetch(graphqlEndpoint, {
           method: "POST",
           headers,
-          body: customerQuery(phone),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          const customers = data?.data?.customers?.edges;
-          if (customers?.length > 0) {
-            customerNode = customers[0].node;
-            console.log(`[Shopify] Cliente encontrado via GraphQL, telefone "${phone}": ${customerNode.id}`);
-            break;
-          }
-        }
-      } catch (e) {
-        console.error(`[Shopify] GraphQL erro variante ${phone}:`, e);
-      }
-    }
-
-    // ESTRATÉGIA 2: Fallback - buscar nos pedidos recentes
-    if (!customerNode) {
-      console.log("[Shopify] Não achou cliente, buscando nos pedidos recentes...");
-      try {
-        const res = await fetch(graphqlEndpoint, {
-          method: "POST",
-          headers,
           body: JSON.stringify({
             query: `{
-              orders(first: 50, query: "status:any") {
+              customers(first: 5, query: "phone:${phone}") {
                 edges {
                   node {
                     id
-                    name
-                    displayFinancialStatus
-                    displayFulfillmentStatus
-                    totalPriceSet { shopMoney { amount currencyCode } }
-                    createdAt
-                    email
+                    firstName
+                    lastName
                     phone
-                    customer { id firstName lastName phone email }
-                    lineItems(first: 10) {
-                      edges {
-                        node {
-                          title
-                          quantity
-                          originalUnitPriceSet { shopMoney { amount currencyCode } }
-                          variant { title }
-                        }
-                      }
-                    }
-                    fulfillments(first: 5) {
-                      trackingInfo(first: 1) { number url }
-                      status
-                    }
                   }
                 }
               }
@@ -183,61 +94,71 @@ Deno.serve(async (req) => {
         });
         if (res.ok) {
           const data = await res.json();
-          const allOrders = data?.data?.orders?.edges?.map((e: any) => e.node) || [];
-
-          const matched = allOrders.filter((o: any) => {
-            const orderPhone = (o.phone || o.customer?.phone || "").replace(/\D/g, "");
-            return orderPhone && (
-              orderPhone.includes(withoutCountry) ||
-              withoutCountry.includes(orderPhone.slice(-8)) ||
-              orderPhone.endsWith(withoutCountry.slice(-8))
-            );
-          });
-
-          if (matched.length > 0) {
-            const formatted = matched.map((o: any) => ({
-              id: o.id,
-              order_number: o.name?.replace("#", ""),
-              name: o.name,
-              status: o.displayFulfillmentStatus?.toLowerCase() || "unfulfilled",
-              financial_status: o.displayFinancialStatus?.toLowerCase() || "pending",
-              total_price: o.totalPriceSet?.shopMoney?.amount,
-              currency: o.totalPriceSet?.shopMoney?.currencyCode,
-              created_at: o.createdAt,
-              customer_email: o.email,
-              customer_name: `${o.customer?.firstName || ""} ${o.customer?.lastName || ""}`.trim(),
-              tracking_number: o.fulfillments?.[0]?.trackingInfo?.[0]?.number || null,
-              tracking_url: o.fulfillments?.[0]?.trackingInfo?.[0]?.url || null,
-              items: o.lineItems?.edges?.map((e: any) => ({
-                title: e.node.title,
-                quantity: e.node.quantity,
-                price: e.node.originalUnitPriceSet?.shopMoney?.amount,
-                variant_title: e.node.variant?.title,
-              })) || [],
-            }));
-
-            console.log(`[Shopify] ${formatted.length} pedidos encontrados via fallback para ${cleanPhone}`);
-            return new Response(
-              JSON.stringify({ orders: formatted }),
-              { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
+          console.log(`[Shopify] Resposta GraphQL para ${phone}:`, JSON.stringify(data?.data?.customers));
+          const customers = data?.data?.customers?.edges;
+          if (customers?.length > 0) {
+            customerId = customers[0].node.id;
+            customerName = `${customers[0].node.firstName || ""} ${customers[0].node.lastName || ""}`.trim();
+            console.log(`[Shopify] CLIENTE ENCONTRADO: ${customerId} — ${customerName}`);
+            break;
           }
         }
       } catch (e) {
-        console.error("[Shopify] Erro fallback orders:", e);
+        console.error(`[Shopify] Erro variante ${phone}:`, e);
       }
     }
 
-    if (!customerNode) {
+    if (!customerId) {
       console.log(`[Shopify] Nenhum cliente encontrado para ${cleanPhone}`);
       return new Response(
-        JSON.stringify({ orders: [] }),
+        JSON.stringify({ orders: [], debug: `phone_tried: ${phoneVariants.join(", ")}` }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Formatar pedidos do cliente encontrado
-    const orders = customerNode.orders?.edges?.map((e: any) => e.node) || [];
+    // Com o customerId em mãos, buscar os pedidos desse cliente
+    const ordersRes = await fetch(graphqlEndpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        query: `{
+          customer(id: "${customerId}") {
+            orders(first: 10, sortKey: CREATED_AT, reverse: true) {
+              edges {
+                node {
+                  id
+                  name
+                  displayFinancialStatus
+                  displayFulfillmentStatus
+                  totalPriceSet { shopMoney { amount currencyCode } }
+                  createdAt
+                  email
+                  lineItems(first: 10) {
+                    edges {
+                      node {
+                        title
+                        quantity
+                        originalUnitPriceSet { shopMoney { amount currencyCode } }
+                        variant { title }
+                      }
+                    }
+                  }
+                  fulfillments(first: 5) {
+                    trackingInfo(first: 1) { number url }
+                    status
+                  }
+                }
+              }
+            }
+          }
+        }`
+      }),
+    });
+
+    const ordersData = await ordersRes.json();
+    const orders = ordersData?.data?.customer?.orders?.edges?.map((e: any) => e.node) || [];
+
+    console.log(`[Shopify] ${orders.length} pedidos encontrados para customer ${customerId}`);
 
     const formatted = orders.map((o: any) => ({
       id: o.id,
@@ -249,7 +170,7 @@ Deno.serve(async (req) => {
       currency: o.totalPriceSet?.shopMoney?.currencyCode,
       created_at: o.createdAt,
       customer_email: o.email,
-      customer_name: `${customerNode.firstName || ""} ${customerNode.lastName || ""}`.trim(),
+      customer_name: customerName,
       tracking_number: o.fulfillments?.[0]?.trackingInfo?.[0]?.number || null,
       tracking_url: o.fulfillments?.[0]?.trackingInfo?.[0]?.url || null,
       items: o.lineItems?.edges?.map((e: any) => ({
@@ -260,7 +181,6 @@ Deno.serve(async (req) => {
       })) || [],
     }));
 
-    console.log(`[Shopify] ${formatted.length} pedidos encontrados para ${cleanPhone}`);
     return new Response(
       JSON.stringify({ orders: formatted }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }

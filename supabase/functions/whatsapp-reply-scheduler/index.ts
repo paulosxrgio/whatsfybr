@@ -513,6 +513,35 @@ ${formattedHistory}`;
 
         console.log(`Fatos extraídos para ticket ${item.ticket_id}: ${factsContext || 'nenhum'}`);
 
+        // ── Buscar pedidos Shopify para contexto ──
+        let orderContext = "Nenhum pedido Shopify encontrado para este cliente.";
+        try {
+          const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+          const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+          const ordersRes = await fetch(`${supabaseUrl}/functions/v1/fetch-shopify-orders`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${supabaseAnonKey}` },
+            body: JSON.stringify({ store_id: item.store_id, customer_phone: ticket.customer_phone, customer_name: ticket.customer_name }),
+          });
+          if (ordersRes.ok) {
+            const ordersData = await ordersRes.json();
+            const orders = ordersData?.orders || [];
+            if (orders.length > 0) {
+              orderContext = `PEDIDOS SHOPIFY DO CLIENTE:\n${orders.map((o: any) =>
+                `Pedido ${o.order_number} — ${o.financial_status === 'paid' ? 'PAGO' : o.financial_status}\n` +
+                `Status entrega: ${o.fulfillment_status === 'fulfilled' ? 'Enviado' : o.fulfillment_status === 'partial' ? 'Parcialmente enviado' : 'Aguardando envio'}\n` +
+                `Itens: ${(o.line_items || []).map((i: any) => `${i.title}${i.variant ? ' (' + i.variant + ')' : ''} x${i.quantity}`).join(', ')}\n` +
+                `Total: ${o.currency} ${o.total_price}\n` +
+                `${o.tracking_number ? `Rastreio: ${o.tracking_number}` : 'Sem rastreio ainda'}\n` +
+                `${o.tracking_url ? `Link rastreio: ${o.tracking_url}` : ''}\n` +
+                `Data: ${new Date(o.created_at).toLocaleDateString('pt-BR')}`
+              ).join('\n---\n')}\n\nUSE ESSES DADOS para responder perguntas sobre pedidos. Mencione o número do pedido e status diretamente.`;
+            }
+          }
+        } catch (e) {
+          console.error("Erro ao buscar pedidos Shopify:", e);
+        }
+
         // Construir contexto
         const memoryContext = memory
           ? `DADOS DO CLIENTE: Nome: ${memory.customer_name || "desconhecido"}, Idioma: ${memory.preferred_language}, Último sentimento: ${memory.last_sentiment || "neutro"}, Total interações: ${memory.total_interactions}${memory.notes ? `, Notas: ${memory.notes}` : ""}`
@@ -540,6 +569,8 @@ ${formattedHistory}
 NOVAS MENSAGENS DO CLIENTE AGUARDANDO RESPOSTA:
 ${consolidatedInput}
 ══════════════════════════════
+
+${orderContext}
 
 ${memoryContext}
 ${sentimentInstruction}

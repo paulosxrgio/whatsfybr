@@ -113,8 +113,7 @@ serve(async (req) => {
 
         const storeName = (await supabase.from("stores").select("name").eq("id", item.store_id).single()).data?.name || "Loja";
 
-        // Detect intent
-        const conversationHistory = messages?.slice(-3).map(m => m.content || "").filter(Boolean) || [];
+        const conversationHistory = messageHistory?.slice(-3).map(m => m.content || "").filter(Boolean) || [];
         const intentDetectionPrompt = `Analise a mensagem abaixo e classifique a intenção em UMA palavra:
 
 - "support" = cliente já comprou e tem problema (entrega, reembolso, rastreio, reclamação)

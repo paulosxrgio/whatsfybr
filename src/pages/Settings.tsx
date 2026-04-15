@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Copy, CheckCircle, Loader2, Info, Wifi, Activity, Zap } from "lucide-react";
+import { Copy, CheckCircle, Loader2, Info, Wifi, Activity, Zap, ShoppingBag } from "lucide-react";
 
 const DEFAULT_SYSTEM_PROMPT = `Você é Sophia, atendente de suporte da loja via WhatsApp.
 
@@ -55,6 +55,7 @@ const SettingsPage = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  const [verifyingShopify, setVerifyingShopify] = useState(false);
 
   useEffect(() => {
     if (!currentStore) return;
@@ -273,9 +274,43 @@ const SettingsPage = () => {
             <Input value={settings.shopify_client_id} onChange={(e) => update("shopify_client_id", e.target.value)} type="password" />
           </div>
           <div className="space-y-2">
-            <Label>Client Secret</Label>
-            <Input value={settings.shopify_client_secret} onChange={(e) => update("shopify_client_secret", e.target.value)} type="password" />
+            <Label>Admin API Access Token</Label>
+            <Input value={settings.shopify_client_secret} onChange={(e) => update("shopify_client_secret", e.target.value)} type="password" placeholder="shpat_..." />
+            <p className="text-xs text-muted-foreground">Token de acesso da API Admin (começa com shpat_)</p>
           </div>
+
+          <Button
+            variant="outline"
+            onClick={async () => {
+              if (!settings.shopify_store_url || !settings.shopify_client_secret) {
+                toast.error("Preencha a URL da loja e o Access Token primeiro.");
+                return;
+              }
+              setVerifyingShopify(true);
+              try {
+                const { data, error } = await supabase.functions.invoke("verify-shopify-connection", {
+                  body: {
+                    store_url: settings.shopify_store_url,
+                    access_token: settings.shopify_client_secret,
+                  },
+                });
+                if (error) throw error;
+                if (data?.success) {
+                  toast.success(data.message);
+                } else {
+                  toast.error(data?.error || "Falha na verificação.");
+                }
+              } catch {
+                toast.error("Erro ao verificar conexão Shopify.");
+              }
+              setVerifyingShopify(false);
+            }}
+            disabled={verifyingShopify}
+            className="w-full"
+          >
+            {verifyingShopify ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <ShoppingBag className="h-4 w-4 mr-2" />}
+            Verificar Conexão Shopify
+          </Button>
         </CardContent>
       </Card>
 

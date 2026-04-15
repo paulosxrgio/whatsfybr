@@ -32,6 +32,7 @@ const AccountSettingsPage = () => {
   const [settingsId, setSettingsId] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [verifyStatus, setVerifyStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [verifyError, setVerifyError] = useState('');
 
   useEffect(() => {
     if (!user) return;
@@ -154,9 +155,16 @@ const AccountSettingsPage = () => {
                       },
                     });
                     if (error) throw error;
-                    setVerifyStatus(data?.success ? 'success' : 'error');
-                  } catch {
+                    if (data?.success) {
+                      setVerifyStatus('success');
+                      setVerifyError('');
+                    } else {
+                      setVerifyStatus('error');
+                      setVerifyError(data?.error || 'Erro desconhecido ao verificar a conexão.');
+                    }
+                  } catch (e: any) {
                     setVerifyStatus('error');
+                    setVerifyError(e?.message || 'Erro de rede ao verificar conexão.');
                   } finally {
                     setVerifying(false);
                   }
@@ -174,7 +182,7 @@ const AccountSettingsPage = () => {
               )}
               {verifyStatus === 'error' && (
                 <span className="flex items-center gap-1 text-sm text-destructive">
-                  <XCircle className="w-4 h-4" /> API Key inválida. Verifique e tente novamente.
+                  <XCircle className="w-4 h-4" /> {verifyError || 'API Key inválida. Verifique e tente novamente.'}
                 </span>
               )}
             </div>

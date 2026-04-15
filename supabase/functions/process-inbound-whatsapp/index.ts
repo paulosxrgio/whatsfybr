@@ -68,6 +68,12 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "phone required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // Filter out Z-API LIDs (Linked IDs) — not real phone numbers
+    if (phone.length > 13) {
+      console.log(`Ignorando LID (não é telefone real): ${phone}`);
+      return new Response(JSON.stringify({ ok: true, skipped: "lid_filtered" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
@@ -124,15 +130,36 @@ serve(async (req) => {
         .select()
         .single();
 
-      if (error || !newTicket) {
-        console.error("Erro ao criar ticket:", error);
-        return new Response(JSON.stringify({ error: "Failed to create ticket" }), {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+      if (error) {
+        // Handle unique constraint violation (race condition) — re-fetch existing ticket
+        if (error.code === "23505") {
+          console.log(`Race condition detectada para ${phone}, buscando ticket existente`);
+          const { data: raceTicket } = await supabase
+            .from("tickets")
+            .select("id")
+            .eq("store_id", storeId)
+            .eq("customer_phone", phone)
+            .eq("status", "open")
+            .limit(1)
+            .maybeSingle();
+          if (raceTicket) {
+            ticketId = raceTicket.id;
+          } else {
+            console.error("Ticket não encontrado após race condition:", error);
+            return new Response(JSON.stringify({ error: "Failed to resolve ticket" }), {
+              status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+        } else {
+          console.error("Erro ao criar ticket:", error);
+          return new Response(JSON.stringify({ error: "Failed to create ticket" }), {
+            status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      } else {
+        ticketId = newTicket!.id;
       }
-      ticketId = newTicket.id;
-      console.log(`Novo ticket criado: ${ticketId} para ${phone}`);
+      console.log(`Ticket resolvido: ${ticketId} para ${phone}`);
     }
 
     // If audio, transcribe before saving

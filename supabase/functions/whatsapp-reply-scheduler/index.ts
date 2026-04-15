@@ -122,6 +122,10 @@ Responda SOMENTE uma palavra: support, sales ou unclear`;
               body: JSON.stringify({ model: aiModel, messages: [{ role: "user", content: intentDetectionPrompt }], max_tokens: 10 }),
             });
             const data = await res.json();
+            if (!res.ok) {
+              console.error(`OpenAI intent error: HTTP ${res.status}`, JSON.stringify(data.error || data));
+              throw new Error(`OpenAI API error: ${data.error?.message || res.status}`);
+            }
             intentRaw = data.choices?.[0]?.message?.content || "";
           } else if (aiProvider === "anthropic") {
             const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -130,6 +134,10 @@ Responda SOMENTE uma palavra: support, sales ou unclear`;
               body: JSON.stringify({ model: aiModel, max_tokens: 10, messages: [{ role: "user", content: intentDetectionPrompt }] }),
             });
             const data = await res.json();
+            if (!res.ok) {
+              console.error(`Anthropic intent error: HTTP ${res.status}`, JSON.stringify(data.error || data));
+              throw new Error(`Anthropic API error: ${data.error?.message || res.status}`);
+            }
             intentRaw = data.content?.[0]?.text || "";
           }
           const lower = intentRaw.trim().toLowerCase();
@@ -413,6 +421,10 @@ Use naturalmente quando apropriado:
             }),
           });
           const data = await res.json();
+          if (!res.ok) {
+            console.error(`OpenAI response error: HTTP ${res.status}`, JSON.stringify(data.error || data));
+            throw new Error(`OpenAI API error: ${data.error?.message || res.status}`);
+          }
           responseText = data.choices?.[0]?.message?.content || "";
         } else if (aiProvider === "anthropic") {
           const systemMsg = chatMessages.filter(m => m.role === "system").map(m => m.content).join("\n\n");
@@ -432,6 +444,10 @@ Use naturalmente quando apropriado:
             }),
           });
           const data = await res.json();
+          if (!res.ok) {
+            console.error(`Anthropic response error: HTTP ${res.status}`, JSON.stringify(data.error || data));
+            throw new Error(`Anthropic API error: ${data.error?.message || res.status}`);
+          }
           responseText = data.content?.[0]?.text || "";
         }
 

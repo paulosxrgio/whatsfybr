@@ -460,14 +460,62 @@ Nunca fique em loop de "vou verificar". Se não sabe a resposta, diga que não s
 
         const systemPrompt = `${baseSystemPrompt}\n\n${modePrompt}${settings.ai_system_prompt ? `\n\n━━━━━━━━━━━━━━━━━━━━━━\nREGRAS ESPECÍFICAS DESTA LOJA\n━━━━━━━━━━━━━━━━━━━━━━\n\n${settings.ai_system_prompt}` : ""}`;
 
-        // Construir contexto explícito da conversa para evitar loops de perguntas repetidas
+        // ── Extração de fatos via IA para evitar loops ──
+        let facts: Record<string, string | null> = {};
+        if (formattedHistory.length > 0) {
+          const factExtractionPrompt = `Leia essa conversa e extraia os fatos que o cliente já forneceu.
+Retorne SOMENTE um JSON com os campos encontrados (use null se não mencionado):
+
+{
+  "produto": null,
+  "cor": null,
+  "tamanho": null,
+  "cep": null,
+  "prazo_desejado": null,
+  "numero_pedido": null,
+  "acao_solicitada": null
+}
+
+Conversa:
+${formattedHistory}`;
+
+          try {
+            let factsRaw = "";
+            if (aiProvider === "openai") {
+              const fRes = await fetch("https://api.openai.com/v1/responses", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${openaiApiKey}` },
+                body: JSON.stringify({ model: aiModel, instructions: "Retorne SOMENTE JSON válido, sem markdown.", input: factExtractionPrompt, store: false }),
+              });
+              const fData = await fRes.json();
+              factsRaw = fData.output_text || fData.output?.[0]?.content?.[0]?.text || "";
+            } else if (aiProvider === "anthropic") {
+              const fRes = await fetch("https://api.anthropic.com/v1/messages", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "x-api-key": anthropicApiKey, "anthropic-version": "2023-06-01" },
+                body: JSON.stringify({ model: aiModel, max_tokens: 200, messages: [{ role: "user", content: factExtractionPrompt }] }),
+              });
+              const fData = await fRes.json();
+              factsRaw = fData.content?.[0]?.text || "";
+            }
+            const clean = factsRaw.replace(/```json|```/g, '').trim();
+            facts = JSON.parse(clean);
+          } catch (e) {
+            console.error("Fact extraction error (non-fatal):", e);
+            facts = {};
+          }
+        }
+
+        const factsContext = Object.entries(facts)
+          .filter(([, v]) => v !== null)
+          .map(([k, v]) => `${k}: ${v}`)
+          .join('\n');
+
+        console.log(`Fatos extraídos para ticket ${item.ticket_id}: ${factsContext || 'nenhum'}`);
+
+        // Construir contexto
         const memoryContext = memory
           ? `DADOS DO CLIENTE: Nome: ${memory.customer_name || "desconhecido"}, Idioma: ${memory.preferred_language}, Último sentimento: ${memory.last_sentiment || "neutro"}, Total interações: ${memory.total_interactions}${memory.notes ? `, Notas: ${memory.notes}` : ""}`
-          : "";
-
-        // Resumo explícito do histórico para incluir no userMessage
-        const conversationSummary = messages && messages.length > 0
-          ? `RESUMO DO QUE JÁ FOI DITO NESTA CONVERSA:\n${messages.map(m => `${m.direction === "inbound" ? "CLIENTE" : "SOPHIA"}: ${m.content || "[mídia]"}`).join("\n")}\n\nATENÇÃO: Use essas informações. NÃO peça informações que já foram fornecidas acima.`
           : "";
 
         const sentimentInstruction = ticket.sentiment === "frustrated"
@@ -476,15 +524,25 @@ Nunca fique em loop de "vou verificar". Se não sabe a resposta, diga que não s
           ? "O cliente está FURIOSO. Máxima calma. Desculpe-se antes de resolver."
           : "";
 
-        // Montar userMessage consolidado com todo o contexto
+        // Montar userMessage com fatos extraídos em posição de destaque
         const userMessage = `
-${conversationSummary}
+══════════════════════════════
+FATOS JÁ FORNECIDOS PELO CLIENTE NESTA CONVERSA:
+${factsContext || 'nenhum fato identificado ainda'}
+
+REGRA ABSOLUTA: Se um fato já está listado acima, NUNCA pergunte sobre ele novamente.
+══════════════════════════════
+
+HISTÓRICO COMPLETO DA CONVERSA:
+${formattedHistory}
+
+══════════════════════════════
+NOVAS MENSAGENS DO CLIENTE AGUARDANDO RESPOSTA:
+${consolidatedInput}
+══════════════════════════════
 
 ${memoryContext}
 ${sentimentInstruction}
-
-NOVAS MENSAGENS DO CLIENTE (responda a TUDO isso):
-${consolidatedInput}
 `.trim();
 
         const chatMessages = [
@@ -500,16 +558,18 @@ ${consolidatedInput}
         }
 
         // Adicionar histórico como mensagens alternadas para manter contexto na API
-        if (messages) {
-          for (const msg of messages.slice(0, -1)) {
+        if (messageHistory) {
+          for (const msg of messageHistory.slice(0, -1)) {
             chatMessages.push({
               role: msg.direction === "inbound" ? "user" : "assistant",
-              content: msg.content || "[mídia]",
+              content: msg.message_type === "image" ? "[cliente enviou uma imagem]"
+                : msg.message_type === "audio" ? `[áudio transcrito: ${msg.content || ""}]`
+                : msg.content || "[mídia]",
             });
           }
         }
 
-        // A última mensagem do usuário inclui o contexto completo + mensagens pendentes
+        // A última mensagem do usuário inclui o contexto completo + fatos + mensagens pendentes
         chatMessages.push({ role: "user", content: userMessage });
 
         // Call AI

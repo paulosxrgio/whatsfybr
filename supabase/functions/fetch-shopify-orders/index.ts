@@ -49,7 +49,6 @@ Deno.serve(async (req) => {
       "Content-Type": "application/json",
     };
 
-    // Limpar telefone e gerar variantes
     const cleanPhone = customer_phone?.replace(/\D/g, "") || "";
 
     if (!cleanPhone) {
@@ -59,46 +58,91 @@ Deno.serve(async (req) => {
       );
     }
 
-    const phoneWithoutCountry = cleanPhone.startsWith("55")
-      ? cleanPhone.slice(2)
-      : cleanPhone;
+    // Remover DDI 55 se existir para pegar o número local
+    const withoutCountry = cleanPhone.startsWith("55") ? cleanPhone.slice(2) : cleanPhone;
+    const ddd = withoutCountry.slice(0, 2);
+    const num = withoutCountry.slice(2);
 
+    // Gerar TODAS as variantes de formato possíveis no Shopify
     const phoneVariants = [
       cleanPhone,
       `+${cleanPhone}`,
-      phoneWithoutCountry,
-      `+55${phoneWithoutCountry}`,
-      `55${phoneWithoutCountry}`,
+      `+55${withoutCountry}`,
+      withoutCountry,
+      `+55 ${ddd} ${num.slice(0, 5)}-${num.slice(5)}`,
+      `+55 ${ddd} ${num}`,
+      `55 ${ddd} ${num.slice(0, 5)}-${num.slice(5)}`,
+      `(${ddd}) ${num.slice(0, 5)}-${num.slice(5)}`,
+      `${ddd} ${num.slice(0, 5)}-${num.slice(5)}`,
+      `${ddd}${num}`,
     ].filter((v, i, arr) => arr.indexOf(v) === i);
 
+    let customerId: string | null = null;
     let orders: any[] = [];
 
-    // Buscar por cada variante do telefone — parar na primeira que achar
+    // ESTRATÉGIA 1: customers/search por cada variante de telefone
     for (const phone of phoneVariants) {
-      if (orders.length > 0) break;
       try {
         const res = await fetch(
-          `https://${shopifyUrl}/admin/api/2024-01/customers/search.json?query=phone:${encodeURIComponent(phone)}&limit=5`,
+          `https://${shopifyUrl}/admin/api/2024-01/customers/search.json?query=phone:${encodeURIComponent(phone)}&limit=5&fields=id,phone,email,first_name,last_name`,
           { headers: restHeaders }
         );
         if (res.ok) {
           const data = await res.json();
           if (data.customers?.length > 0) {
-            const customerId = data.customers[0].id;
-            const ordersRes = await fetch(
-              `https://${shopifyUrl}/admin/api/2024-01/orders.json?customer_id=${customerId}&status=any&limit=10`,
-              { headers: restHeaders }
-            );
-            if (ordersRes.ok) {
-              const ordersData = await ordersRes.json();
-              orders = ordersData.orders || [];
-              console.log(`[Shopify] Encontrado pelo telefone ${phone}: ${orders.length} pedidos`);
-              break;
-            }
+            customerId = data.customers[0].id;
+            console.log(`[Shopify] Cliente encontrado por telefone "${phone}": ${customerId}`);
+            break;
           }
         }
       } catch (e) {
-        console.error(`[Shopify] Erro buscando telefone ${phone}:`, e);
+        console.error(`[Shopify] Erro variante ${phone}:`, e);
+      }
+    }
+
+    // ESTRATÉGIA 2: buscar direto nos pedidos recentes por telefone
+    if (!customerId) {
+      console.log("[Shopify] Não achou por customers/search, tentando orders direto...");
+      try {
+        const res = await fetch(
+          `https://${shopifyUrl}/admin/api/2024-01/orders.json?status=any&limit=50&fields=id,order_number,name,phone,customer,financial_status,fulfillment_status,line_items,fulfillments,total_price,currency,created_at,email`,
+          { headers: restHeaders }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          const matched = data.orders?.filter((o: any) => {
+            const orderPhone = (o.phone || o.customer?.phone || "").replace(/\D/g, "");
+            return (
+              orderPhone.includes(withoutCountry) ||
+              withoutCountry.includes(orderPhone) ||
+              orderPhone.endsWith(withoutCountry) ||
+              cleanPhone.endsWith(orderPhone.replace(/^55/, ""))
+            );
+          });
+          if (matched?.length > 0) {
+            orders = matched;
+            console.log(`[Shopify] Pedidos encontrados direto nos orders: ${orders.length}`);
+          }
+        }
+      } catch (e) {
+        console.error("[Shopify] Erro buscando orders direto:", e);
+      }
+    }
+
+    // Se achou o customerId, buscar pedidos pelo cliente
+    if (customerId && orders.length === 0) {
+      try {
+        const res = await fetch(
+          `https://${shopifyUrl}/admin/api/2024-01/orders.json?customer_id=${customerId}&status=any&limit=10`,
+          { headers: restHeaders }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          orders = data.orders || [];
+          console.log(`[Shopify] Pedidos por customer_id ${customerId}: ${orders.length}`);
+        }
+      } catch (e) {
+        console.error("[Shopify] Erro buscando por customer_id:", e);
       }
     }
 
@@ -124,7 +168,7 @@ Deno.serve(async (req) => {
       })),
     }));
 
-    console.log(`[Shopify] Retornando ${formatted.length} pedidos formatados`);
+    console.log(`[Shopify] Total formatado: ${formatted.length} pedidos para ${cleanPhone}`);
 
     return new Response(
       JSON.stringify({ orders: formatted }),

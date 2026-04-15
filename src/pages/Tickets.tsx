@@ -736,7 +736,7 @@ const TicketsPage = () => {
                         {order.fulfillment_status || "UNFULFILLED"}
                       </span>
                     </div>
-                    {order.line_items.slice(0, 3).map((item, j) => (
+                    {(order.line_items || []).slice(0, 3).map((item, j) => (
                       <p key={j} className="text-[10px] text-muted-foreground truncate">
                         {item.quantity}x {item.title}{item.variant ? ` (${item.variant})` : ""}
                       </p>

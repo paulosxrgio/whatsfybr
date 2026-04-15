@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useStore } from "@/contexts/StoreContext";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -6,9 +6,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Bot, Search, Phone, CheckCircle, RefreshCw, Globe, StickyNote, MessageSquare, CheckCheck, Loader2, Clock, TrendingUp, Headphones, HelpCircle, ShoppingBag, Package, ExternalLink } from "lucide-react";
+import { Send, Bot, Search, Phone, CheckCircle, RefreshCw, Globe, StickyNote, MessageSquare, CheckCheck, Loader2, Clock, TrendingUp, Headphones, HelpCircle, ShoppingBag, Package, ExternalLink, Camera } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { toPng } from "html-to-image";
 import { format, isToday, isSameDay } from "date-fns";
 
 type Ticket = {
@@ -81,6 +82,44 @@ const TicketsPage = () => {
   const [shopifyLoading, setShopifyLoading] = useState(false);
   const [shopifyError, setShopifyError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const [exporting, setExporting] = useState(false);
+
+  // Exportar conversa completa como imagem PNG
+  const handleExportChat = useCallback(async () => {
+    const container = messagesContainerRef.current;
+    if (!container || messages.length === 0) return;
+    setExporting(true);
+    try {
+      // Clonar o container para capturar todas as mensagens sem scroll
+      const clone = container.cloneNode(true) as HTMLElement;
+      clone.style.height = "auto";
+      clone.style.overflow = "visible";
+      clone.style.maxHeight = "none";
+      clone.style.position = "absolute";
+      clone.style.left = "-9999px";
+      clone.style.top = "0";
+      clone.style.width = `${container.offsetWidth}px`;
+      document.body.appendChild(clone);
+
+      const dataUrl = await toPng(clone, {
+        backgroundColor: "#efeae2",
+        pixelRatio: 2,
+      });
+
+      document.body.removeChild(clone);
+
+      // Download automático
+      const link = document.createElement("a");
+      link.download = `conversa-${selectedTicket?.customer_phone || "chat"}-${new Date().toISOString().slice(0, 10)}.png`;
+      link.href = dataUrl;
+      link.click();
+      toast.success("Conversa exportada!");
+    } catch {
+      toast.error("Erro ao exportar conversa");
+    }
+    setExporting(false);
+  }, [messages, selectedTicket]);
 
   const fetchTickets = async () => {
     if (!currentStore) return;
@@ -294,7 +333,7 @@ const TicketsPage = () => {
   });
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full overflow-hidden">
       {/* Ticket List */}
       <div className="w-80 border-r flex flex-col bg-card">
         <div className="p-3 space-y-2 border-b">
@@ -375,7 +414,7 @@ const TicketsPage = () => {
       </div>
 
       {/* Chat Area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0">
         {selectedTicket ? (
           <>
             {/* Header */}
@@ -427,12 +466,21 @@ const TicketsPage = () => {
                 <button onClick={toggleTicketStatus} className="text-xs px-3 py-1 rounded border hover:bg-muted transition-colors">
                   {selectedTicket.status === "open" ? "Fechar" : "Reabrir"}
                 </button>
+                <button
+                  onClick={handleExportChat}
+                  disabled={exporting || messages.length === 0}
+                  title="Exportar conversa como imagem"
+                  className="text-xs px-2 py-1 rounded border hover:bg-muted transition-colors disabled:opacity-50"
+                >
+                  {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
+                </button>
               </div>
             </div>
 
-            {/* Messages */}
+            {/* Messages — min-h-0 garante que o flex-1 respeite overflow */}
             <div
-              className="flex-1 overflow-y-auto p-4 space-y-3"
+              ref={messagesContainerRef}
+              className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0"
               style={{
                 backgroundColor: "#efeae2",
                 backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23d4c5a9' fill-opacity='0.3'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`

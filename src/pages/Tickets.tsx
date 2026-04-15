@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useStore } from "@/contexts/StoreContext";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -6,9 +6,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Bot, Search, Phone, CheckCircle, RefreshCw, Globe, StickyNote, MessageSquare, CheckCheck, Loader2, Clock, TrendingUp, Headphones, HelpCircle, ShoppingBag, Package, ExternalLink } from "lucide-react";
+import { Send, Bot, Search, Phone, CheckCircle, RefreshCw, Globe, StickyNote, MessageSquare, CheckCheck, Loader2, Clock, TrendingUp, Headphones, HelpCircle, ShoppingBag, Package, ExternalLink, Camera } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { toPng } from "html-to-image";
 import { format, isToday, isSameDay } from "date-fns";
 
 type Ticket = {

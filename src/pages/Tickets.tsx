@@ -333,10 +333,10 @@ const TicketsPage = () => {
   });
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="flex h-screen overflow-hidden">
       {/* Ticket List */}
-      <div className="w-80 border-r flex flex-col bg-card">
-        <div className="p-3 space-y-2 border-b">
+      <div className="w-80 flex-shrink-0 border-r flex flex-col h-full bg-card overflow-hidden">
+        <div className="flex-shrink-0 p-3 space-y-2 border-b">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
@@ -366,7 +366,7 @@ const TicketsPage = () => {
             + Simular mensagem
           </button>
         </div>
-        <ScrollArea className="flex-1">
+        <ScrollArea className="flex-1 min-h-0">
           {filteredTickets.map((ticket) => (
             <button
               key={ticket.id}
@@ -414,11 +414,11 @@ const TicketsPage = () => {
       </div>
 
       {/* Chat Area */}
-      <div className="flex-1 flex flex-col min-w-0 min-h-0">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
         {selectedTicket ? (
           <>
             {/* Header */}
-            <div className="h-14 border-b bg-white px-4 flex items-center justify-between">
+            <div className="flex-shrink-0 h-14 border-b bg-white px-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center text-white font-bold">
                   {selectedTicket.customer_name?.[0]?.toUpperCase() || "?"}
@@ -551,7 +551,7 @@ const TicketsPage = () => {
             </div>
 
             {/* Input */}
-            <div className="p-3 bg-[#f0f2f5] border-t flex items-end gap-2">
+            <div className="flex-shrink-0 p-3 bg-[#f0f2f5] border-t flex items-end gap-2">
               <textarea
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
@@ -601,7 +601,7 @@ const TicketsPage = () => {
 
       {/* Customer Info Panel */}
       {selectedTicket && (
-        <div className="w-72 border-l bg-card p-4 hidden lg:block overflow-auto">
+        <div className="w-72 flex-shrink-0 border-l bg-card p-4 hidden lg:flex flex-col h-full overflow-y-auto">
           <div className="text-center mb-4">
             <Avatar className="h-16 w-16 mx-auto mb-2">
               <AvatarFallback className="bg-primary/10 text-primary text-xl font-semibold">

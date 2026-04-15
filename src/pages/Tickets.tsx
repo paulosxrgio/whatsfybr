@@ -6,10 +6,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Bot, Search, Phone, CheckCircle, RefreshCw, Globe, StickyNote, MessageSquare, CheckCheck, Loader2, Clock, TrendingUp, Headphones, HelpCircle, ShoppingBag, Package, ExternalLink, Camera } from "lucide-react";
+import { Send, Bot, Search, Phone, CheckCircle, RefreshCw, Globe, StickyNote, MessageSquare, CheckCheck, Loader2, Clock, TrendingUp, Headphones, HelpCircle, ShoppingBag, Package, ExternalLink, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { toPng } from "html-to-image";
 import { format, isToday, isSameDay } from "date-fns";
 
 type Ticket = {
@@ -82,43 +81,65 @@ const TicketsPage = () => {
   const [shopifyLoading, setShopifyLoading] = useState(false);
   const [shopifyError, setShopifyError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const [exporting, setExporting] = useState(false);
 
-  // Exportar conversa completa como imagem PNG
-  const handleExportChat = useCallback(async () => {
-    const container = messagesContainerRef.current;
-    if (!container || messages.length === 0) return;
-    setExporting(true);
-    try {
-      // Clonar o container para capturar todas as mensagens sem scroll
-      const clone = container.cloneNode(true) as HTMLElement;
-      clone.style.height = "auto";
-      clone.style.overflow = "visible";
-      clone.style.maxHeight = "none";
-      clone.style.position = "absolute";
-      clone.style.left = "-9999px";
-      clone.style.top = "0";
-      clone.style.width = `${container.offsetWidth}px`;
-      document.body.appendChild(clone);
-
-      const dataUrl = await toPng(clone, {
-        backgroundColor: "#efeae2",
-        pixelRatio: 2,
-      });
-
-      document.body.removeChild(clone);
-
-      // Download automático
-      const link = document.createElement("a");
-      link.download = `conversa-${selectedTicket?.customer_phone || "chat"}-${new Date().toISOString().slice(0, 10)}.png`;
-      link.href = dataUrl;
-      link.click();
-      toast.success("Conversa exportada!");
-    } catch {
-      toast.error("Erro ao exportar conversa");
+  // Copiar conversa completa como texto formatado
+  const copyChat = useCallback(async () => {
+    if (!messages || messages.length === 0) return;
+    const lines: string[] = [];
+    lines.push(`━━━━━━━━━━━━━━━━━━━━━━`);
+    lines.push(`Conversa: ${selectedTicket?.customer_name || selectedTicket?.customer_phone}`);
+    lines.push(`Telefone: ${selectedTicket?.customer_phone}`);
+    lines.push(`Status: ${selectedTicket?.status}`);
+    lines.push(`Exportado em: ${new Date().toLocaleString('pt-BR')}`);
+    lines.push(`━━━━━━━━━━━━━━━━━━━━━━`);
+    lines.push('');
+    let lastDate = '';
+    for (const msg of messages) {
+      if (!msg.created_at) continue;
+      const msgDate = new Date(msg.created_at);
+      const dateStr = msgDate.toLocaleDateString('pt-BR');
+      const timeStr = msgDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      if (dateStr !== lastDate) {
+        lines.push(`── ${dateStr} ──`);
+        lines.push('');
+        lastDate = dateStr;
+      }
+      const author = msg.direction === 'outbound' ? '🤖 Sophia' : `👤 ${selectedTicket?.customer_name || 'Cliente'}`;
+      let content = '';
+      if (msg.message_type === 'image') {
+        content = msg.content ? `[📷 Imagem — ${msg.content}]` : '[📷 Imagem recebida]';
+      } else if (msg.message_type === 'audio') {
+        content = msg.content ? `[🎤 Áudio transcrito: "${msg.content}"]` : '[🎤 Áudio recebido]';
+      } else if (msg.message_type === 'video') {
+        content = '[🎥 Vídeo recebido]';
+      } else if (msg.message_type === 'document') {
+        content = '[📄 Documento recebido]';
+      } else if (msg.message_type === 'sticker') {
+        content = '[🎨 Sticker]';
+      } else {
+        content = msg.content || '';
+      }
+      lines.push(`[${timeStr}] ${author}`);
+      lines.push(content);
+      lines.push('');
     }
-    setExporting(false);
+    lines.push(`━━━━━━━━━━━━━━━━━━━━━━`);
+    lines.push(`Total de mensagens: ${messages.length}`);
+    const fullText = lines.join('\n');
+    try {
+      await navigator.clipboard.writeText(fullText);
+      toast.success('Chat copiado para a área de transferência!');
+    } catch {
+      const textarea = document.createElement('textarea');
+      textarea.value = fullText;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      toast.success('Chat copiado!');
+    }
   }, [messages, selectedTicket]);
 
   const fetchTickets = async () => {
@@ -467,12 +488,12 @@ const TicketsPage = () => {
                   {selectedTicket.status === "open" ? "Fechar" : "Reabrir"}
                 </button>
                 <button
-                  onClick={handleExportChat}
-                  disabled={exporting || messages.length === 0}
-                  title="Exportar conversa como imagem"
-                  className="text-xs px-2 py-1 rounded border hover:bg-muted transition-colors disabled:opacity-50"
+                  onClick={copyChat}
+                  disabled={messages.length === 0}
+                  title="Copiar conversa"
+                  className="w-8 h-8 rounded flex items-center justify-center hover:bg-muted transition-colors disabled:opacity-50"
                 >
-                  {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
+                  <Copy className="w-4 h-4 text-muted-foreground" />
                 </button>
               </div>
             </div>

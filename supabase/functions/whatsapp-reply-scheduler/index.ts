@@ -82,13 +82,27 @@ serve(async (req) => {
 
         console.log(`Processando ${pendingMessages?.length || 0} mensagens consolidadas para ticket ${item.ticket_id}`);
 
-        // Also fetch full conversation history for context
-        const { data: messages } = await supabase
+        // Buscar últimas 20 mensagens do ticket para contexto completo
+        const { data: messageHistory } = await supabase
           .from("messages")
           .select("content, direction, message_type, created_at")
           .eq("ticket_id", item.ticket_id)
           .order("created_at", { ascending: true })
           .limit(20);
+
+        // Formatar histórico de forma clara para a IA
+        const formattedHistory = messageHistory
+          ?.map(m => {
+            const time = m.created_at ? new Date(m.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
+            const author = m.direction === 'outbound' ? 'SOPHIA' : 'CLIENTE';
+            const content = m.message_type === 'image'
+              ? '[cliente enviou uma imagem]'
+              : m.message_type === 'audio'
+              ? `[áudio transcrito: ${m.content || ''}]`
+              : m.content || '';
+            return `[${time}] ${author}: ${content}`;
+          })
+          .join('\n') || '';
 
         const { data: memory } = await supabase
           .from("customer_memory")

@@ -500,7 +500,7 @@ const TicketsPage = () => {
 
             {/* Messages — min-h-0 garante que o flex-1 respeite overflow */}
             <div
-              ref={messagesContainerRef}
+              
               className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0"
               style={{
                 backgroundColor: "#efeae2",

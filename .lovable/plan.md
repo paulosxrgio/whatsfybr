@@ -1,127 +1,112 @@
 
 
-# Automação de Mensagem WhatsApp para Pedido Enviado (Shopify)
+# Diagnóstico Completo: Mensagens Sem Resposta + Contatos Duplicados
 
-## Visão Geral
+## Problema 1: IA Não Responde (73 mensagens com status "failed")
 
-Criar um pipeline completo: Shopify envia webhook de fulfillment → Edge Function processa → monta mensagem → envia via Z-API → salva log. Sem alterar nenhuma funcionalidade existente.
+### Evidências Coletadas
 
-## Arquitetura
+| Dado | Valor |
+|------|-------|
+| Itens `failed` na fila | 73 |
+| Itens `done` | 13 (últimos em 09/abr) |
+| Chave OpenAI | Existe (164 chars, prefixo `sk-proj`) |
+| Provider | `openai` / modelo `gpt-4o` |
+| Logs de erro | Nenhum visível |
+
+### Causa Raiz Identificada
+
+A chave OpenAI **parou de funcionar** por volta de 9 de abril. Desde então, 100% dos itens falham. O código faz duas chamadas à API OpenAI por ticket (detecção de intenção + geração de resposta). Quando a chamada retorna erro (quota excedida, chave revogada, créditos esgotados), o `catch` no bloco interno (linha 511) captura o erro e marca como `failed`, mas **o log `console.error("Queue item error:", e)` não está aparecendo nos logs** — possivelmente porque o erro ocorre dentro do `fetch` sem throw (a API retorna 401/429 com JSON, não lança exceção).
+
+O fluxo real é:
+1. `fetch` para OpenAI retorna HTTP 401 ou 429 com corpo de erro JSON
+2. `data.choices?.[0]?.message?.content` resulta em `""` (undefined)
+3. Para detecção de intenção: `intentRaw = ""` → `intent = "unclear"` (silencioso)
+4. Para geração de resposta: `responseText = ""` → entra no `if (!responseText)` na linha 438 → marca como `failed`
+5. Nenhum log de erro é gerado
+
+### O que Falta no Código
+
+O scheduler **não verifica o HTTP status** da resposta da OpenAI. Não loga o erro retornado pela API. A falha é completamente silenciosa.
+
+### Correção Necessária
+
+1. **Verificar e logar a resposta da OpenAI** — após o `fetch`, checar `res.ok` e logar `data.error` se existir
+2. **Validar a chave antes de processar** — ou pelo menos logar claramente quando a API retorna erro
+3. **O usuário deve verificar se a chave OpenAI ainda é válida** — gerar uma nova se necessário nas configurações da conta
+
+---
+
+## Problema 2: Tickets Duplicados
+
+### Evidências Coletadas
+
+| Telefone | Tickets abertos | Intervalo de criação |
+|----------|----------------|---------------------|
+| `194103010681057` | 2 | 78ms |
+| `557599894169` | 2 | (verificar) |
+
+### Causa Raiz: Race Condition
+
+Quando a Z-API envia dois webhooks simultâneos (ex: `PresenceChatCallback` + `ReceivedCallback` chegando juntos, ou duas mensagens rápidas), duas instâncias do Edge Function executam em paralelo:
 
 ```text
-Shopify (orders/fulfilled webhook)
-        │
-        ▼
-Edge Function: process-shopify-webhook
-        │
-        ├─ Valida payload + extrai dados
-        ├─ Verifica duplicata (idempotência por shopify_order_id + event_type)
-        ├─ Insere na tabela whatsapp_notifications (status: pending)
-        └─ Chama envio Z-API direto (sem fila assíncrona — é evento pontual)
-              │
-              ├─ Sucesso → status: sent
-              └─ Falha → status: failed + error_message
+Instância A: SELECT ticket WHERE phone=X → não encontrou → INSERT ticket
+Instância B: SELECT ticket WHERE phone=X → não encontrou → INSERT ticket (78ms depois)
 ```
 
-## Detalhes Técnicos
+Ambas fazem o SELECT antes que a outra faça o INSERT. Resultado: dois tickets.
 
-### 1. Nova tabela: `whatsapp_notifications`
+### Por que o Fix Anterior Não Resolveu
+
+O código atual (linhas 91-99) faz `SELECT ... .eq("status", "open")` seguido de `INSERT`. Isso é uma operação **não-atômica** — não há lock, não há constraint única no banco. O fix anterior corrigiu a lógica sequencial mas **não protege contra concorrência**.
+
+### Telefone Suspeito
+
+`194103010681057` tem 15 dígitos — números brasileiros têm 12-13. Pode ser um LID (Linked ID) da Z-API sendo salvo como telefone, criando tickets fantasma.
+
+---
+
+## Plano de Correção
+
+### 1. Corrigir a Falha Silenciosa da IA (Prioridade Crítica)
+
+No `whatsapp-reply-scheduler/index.ts`, após cada `fetch` à OpenAI/Anthropic:
+- Verificar `res.status` e logar o erro completo quando != 200
+- Logar `data.error` explicitamente antes de marcar como failed
+- Isso permitirá ver **exatamente** por que está falhando (quota, chave inválida, etc.)
+
+### 2. Adicionar Índice Único Parcial para Tickets (Prioridade Alta)
 
 ```sql
-CREATE TABLE public.whatsapp_notifications (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  store_id uuid NOT NULL,
-  shopify_order_id text NOT NULL,
-  order_number text,
-  customer_name text,
-  customer_phone text NOT NULL,
-  event_type text NOT NULL DEFAULT 'order_fulfilled',
-  tracking_code text,
-  tracking_url text,
-  carrier text,
-  message_content text,
-  status text NOT NULL DEFAULT 'pending',
-  error_message text,
-  sent_at timestamptz,
-  created_at timestamptz DEFAULT now(),
-  UNIQUE(store_id, shopify_order_id, event_type)
-);
-
-ALTER TABLE public.whatsapp_notifications ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users manage own store notifications"
-  ON public.whatsapp_notifications FOR ALL
-  USING (store_id IN (SELECT user_store_ids()))
-  WITH CHECK (store_id IN (SELECT user_store_ids()));
+CREATE UNIQUE INDEX idx_one_open_ticket_per_phone_store 
+ON tickets (store_id, customer_phone) 
+WHERE status = 'open';
 ```
 
-A constraint `UNIQUE(store_id, shopify_order_id, event_type)` garante **idempotência** — se a Shopify reenviar o mesmo webhook, o INSERT falha e não envia duplicado.
+Isso resolve a race condition no nível do banco — a segunda inserção simplesmente falha com conflito. O código deve tratar esse erro fazendo um novo SELECT.
 
-### 2. Nova Edge Function: `process-shopify-webhook`
+### 3. Filtrar LIDs no `process-inbound-whatsapp` (Prioridade Média)
 
-Recebe o webhook `orders/fulfilled` da Shopify. O `store_id` vem via query param (igual ao webhook da Z-API).
+Números com mais de 13 dígitos (como `194103010681057`) são LIDs da Z-API, não telefones reais. Devem ser ignorados ou tratados separadamente.
 
-Fluxo:
-1. Valida HMAC da Shopify (usando `shopify_client_secret` da tabela `settings`) para autenticidade
-2. Extrai: `order.name`, `order.customer.first_name`, `order.customer.phone` (ou `order.shipping_address.phone`), `fulfillment.tracking_number`, `fulfillment.tracking_url`, `fulfillment.tracking_company`
-3. Normaliza telefone (remove não-dígitos)
-4. Tenta INSERT na `whatsapp_notifications` — se conflito (duplicata), retorna 200 sem enviar
-5. Monta mensagem com template
-6. Busca credenciais Z-API da tabela `settings`
-7. Envia via Z-API (`send-text`)
-8. Atualiza status para `sent` ou `failed`
+### 4. Limpar Dados Existentes
 
-### 3. Webhook Shopify a configurar
+- Fechar tickets duplicados (manter o mais recente)
+- Limpar entradas `failed` antigas da `auto_reply_queue`
 
-- **Tópico**: `orders/fulfilled`
-- **URL**: `https://tkfacslgbllqzjeotzrd.supabase.co/functions/v1/process-shopify-webhook?store_id=<STORE_ID>`
-- **Formato**: JSON
+### 5. Melhorar Logging no Scheduler
 
-O `shopify_client_secret` já existe na tabela `settings` e será usado para verificar a assinatura HMAC do webhook.
+Adicionar logs em pontos críticos:
+- Resultado HTTP da chamada OpenAI
+- Corpo do erro quando a API falha
+- Tempo de execução de cada etapa
 
-### 4. Template de mensagem
-
-```
-Olá, {{nome}}! 😊 Seu pedido {{numero_pedido}} foi enviado com sucesso!
-
-Código de rastreio: {{codigo}}
-Acompanhe aqui: {{link}}
-
-Abraços, Sophia
-```
-
-Se não houver código de rastreio, a mensagem omite essas linhas.
-
-### 5. Integração com Z-API
-
-Reutiliza exatamente o mesmo padrão do `send-whatsapp-reply`:
-- Busca `zapi_instance_id`, `zapi_token`, `zapi_client_token` da tabela `settings`
-- POST para `https://api.z-api.io/instances/{id}/token/{token}/send-text`
-- Header `Client-Token`
-
-### 6. Prevenção de duplicatas
-
-Duas camadas:
-1. **Banco**: constraint UNIQUE em `(store_id, shopify_order_id, event_type)`
-2. **Código**: INSERT com tratamento de erro de conflito — retorna 200 sem reenviar
-
-### 7. UI — Seção na página de Settings
-
-Adicionar na página de Configurações uma seção "Automações" mostrando:
-- URL do webhook Shopify para copiar (igual ao padrão da Z-API)
-- Switch para ativar/desativar notificação de pedido enviado (campo na tabela `settings`)
-- Instrução de como configurar na Shopify
-
-## Arquivos
+## Arquivos a Modificar
 
 | Arquivo | Mudança |
 |---------|---------|
-| Nova migration | Cria tabela `whatsapp_notifications` |
-| `supabase/functions/process-shopify-webhook/index.ts` | Nova Edge Function |
-| `src/pages/Settings.tsx` | Seção "Automações" com URL do webhook |
-| `src/integrations/supabase/types.ts` | Auto-atualizado |
-
-## Fora de Escopo
-- Outras automações (pedido criado, entregue, etc.)
-- Dashboard/página de visualização das notificações (pode ser próximo passo)
+| `supabase/functions/whatsapp-reply-scheduler/index.ts` | Adicionar verificação de `res.status` e logging de erros da API |
+| `supabase/functions/process-inbound-whatsapp/index.ts` | Filtrar telefones com >13 dígitos (LIDs) |
+| Nova migration | Criar índice único parcial + limpar duplicados + limpar fila failed |
 

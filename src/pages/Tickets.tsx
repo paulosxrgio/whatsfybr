@@ -251,7 +251,16 @@ const TicketsPage = () => {
         if (data?.configured === false) {
           setShopifyError("not_configured");
         } else {
-          setShopifyOrders(data?.orders || []);
+          const mappedOrders = (data?.orders || []).map((o: any) => ({
+            ...o,
+            fulfillment_status: o.fulfillment_status || o.status || "unfulfilled",
+            line_items: (o.line_items || o.items || []).map((i: any) => ({
+              title: i.title,
+              quantity: i.quantity,
+              variant: i.variant_title || i.variant || null,
+            })),
+          }));
+          setShopifyOrders(mappedOrders);
           setShopifyCustomer(data?.customer || null);
         }
       } catch {

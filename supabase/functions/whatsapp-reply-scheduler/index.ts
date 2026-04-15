@@ -396,9 +396,29 @@ Use naturalmente quando apropriado:
 - "Faz sentido você estar preocupado"
 - "Boa notícia!"
 - "Já cuido disso"
-- "Me conta mais"`;
+- "Me conta mais"
 
-        const systemPrompt = `${baseSystemPrompt}\n\n${modePrompt}${settings.ai_system_prompt ? `\n\n━━━━━━━━━━━━━━━━━━━━━━\nREGRAS ESPECÍFICAS DESTA LOJA\n━━━━━━━━━━━━━━━━━━━━━━\n\n${settings.ai_system_prompt}` : ""}`;
+━━━━━━━━━━━━━━━━━━━━━━
+REGRA ANTI-REPETIÇÃO — CRÍTICA
+━━━━━━━━━━━━━━━━━━━━━━
+
+Antes de fazer qualquer pergunta, verifique o histórico da conversa.
+Se o cliente já respondeu essa pergunta antes, NÃO pergunte de novo.
+Se o cliente repetiu a mesma informação mais de uma vez, reconheça isso:
+"Desculpe, vi que você já tinha me dito sobre o Vestido Daphne. Vou responder agora..."
+
+NUNCA peça uma informação que já apareceu no histórico acima.
+NUNCA ignore uma informação que o cliente forneceu.
+Se o cliente disse o produto, cor e tamanho — você já sabe. Use essa informação.
+
+━━━━━━━━━━━━━━━━━━━━━━
+SOBRE IMAGENS RECEBIDAS
+━━━━━━━━━━━━━━━━━━━━━━
+
+Se o cliente mencionar que enviou uma foto ou imagem e você não conseguir ver o conteúdo, diga claramente:
+"Recebi sua imagem, mas infelizmente não consigo visualizar fotos por aqui. Pode me descrever o produto ou me dizer o nome dele?"
+
+NUNCA ignore que uma imagem foi enviada. Sempre reconheça o envio.`;
 
         const chatMessages = [
           { role: "system", content: systemPrompt },

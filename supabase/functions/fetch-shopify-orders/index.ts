@@ -227,7 +227,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { shopify_store_url, shopify_client_secret } = settings;
+    const { shopify_store_url, shopify_client_id, shopify_client_secret } = settings;
 
     if (!shopify_store_url || !shopify_client_secret) {
       return new Response(
@@ -236,9 +236,36 @@ Deno.serve(async (req) => {
       );
     }
 
-    // shopify_client_secret é usado como Admin API access token (shpat_...)
-    const accessToken = shopify_client_secret;
-    const storeUrl = shopify_store_url.replace(/^https?:\/\//, "").replace(/\/$/, "");
+    const storeUrl = shopify_store_url.replace(/^https?:\/\//, "").replace(/\/admin.*$/, "").replace(/\/+$/, "");
+
+    // Determina o access token: shpat_ usa direto, senão faz client_credentials
+    let accessToken = shopify_client_secret;
+
+    if (!shopify_client_secret.startsWith("shpat_") && shopify_client_id) {
+      console.log(`[Shopify] Obtendo token via client_credentials...`);
+      const tokenRes = await fetch(`https://${storeUrl}/admin/oauth/access_token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: shopify_client_id,
+          client_secret: shopify_client_secret,
+          grant_type: "client_credentials",
+        }).toString(),
+      });
+
+      if (!tokenRes.ok) {
+        const errBody = await tokenRes.text();
+        console.error(`[Shopify] Token falhou ${tokenRes.status}: ${errBody}`);
+        return new Response(
+          JSON.stringify({ error: "Falha ao autenticar na Shopify", status: tokenRes.status }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const tokenData = await tokenRes.json();
+      accessToken = tokenData.access_token;
+      console.log(`[Shopify] Token obtido: ${accessToken.slice(0, 10)}...`);
+    }
 
     // Gera variações de busca do telefone
     const variations = phoneSearchVariations(customer_phone);

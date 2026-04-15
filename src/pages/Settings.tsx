@@ -286,9 +286,9 @@ const SettingsPage = () => {
             <PasswordInput value={settings.shopify_client_id} onChange={(e) => update("shopify_client_id", e.target.value)} />
           </div>
           <div className="space-y-2">
-            <Label>Admin API Access Token</Label>
-            <PasswordInput value={settings.shopify_client_secret} onChange={(e) => update("shopify_client_secret", e.target.value)} placeholder="shpat_..." />
-            <p className="text-xs text-muted-foreground">Token de acesso da API Admin (começa com shpat_)</p>
+            <Label>Client Secret</Label>
+            <PasswordInput value={settings.shopify_client_secret} onChange={(e) => update("shopify_client_secret", e.target.value)} placeholder="shpss_... ou shpat_..." />
+            <p className="text-xs text-muted-foreground">Client Secret (shpss_...) ou Admin API Access Token (shpat_...)</p>
           </div>
 
           <Button
@@ -303,6 +303,8 @@ const SettingsPage = () => {
                 const { data, error } = await supabase.functions.invoke("verify-shopify-connection", {
                   body: {
                     store_url: settings.shopify_store_url,
+                    client_id: settings.shopify_client_id,
+                    client_secret: settings.shopify_client_secret,
                     access_token: settings.shopify_client_secret,
                   },
                 });

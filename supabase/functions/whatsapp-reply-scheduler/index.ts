@@ -82,13 +82,27 @@ serve(async (req) => {
 
         console.log(`Processando ${pendingMessages?.length || 0} mensagens consolidadas para ticket ${item.ticket_id}`);
 
-        // Also fetch full conversation history for context
-        const { data: messages } = await supabase
+        // Buscar últimas 20 mensagens do ticket para contexto completo
+        const { data: messageHistory } = await supabase
           .from("messages")
           .select("content, direction, message_type, created_at")
           .eq("ticket_id", item.ticket_id)
           .order("created_at", { ascending: true })
           .limit(20);
+
+        // Formatar histórico de forma clara para a IA
+        const formattedHistory = messageHistory
+          ?.map(m => {
+            const time = m.created_at ? new Date(m.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
+            const author = m.direction === 'outbound' ? 'SOPHIA' : 'CLIENTE';
+            const content = m.message_type === 'image'
+              ? '[cliente enviou uma imagem]'
+              : m.message_type === 'audio'
+              ? `[áudio transcrito: ${m.content || ''}]`
+              : m.content || '';
+            return `[${time}] ${author}: ${content}`;
+          })
+          .join('\n') || '';
 
         const { data: memory } = await supabase
           .from("customer_memory")
@@ -99,8 +113,7 @@ serve(async (req) => {
 
         const storeName = (await supabase.from("stores").select("name").eq("id", item.store_id).single()).data?.name || "Loja";
 
-        // Detect intent
-        const conversationHistory = messages?.slice(-3).map(m => m.content || "").filter(Boolean) || [];
+        const conversationHistory = messageHistory?.slice(-3).map(m => m.content || "").filter(Boolean) || [];
         const intentDetectionPrompt = `Analise a mensagem abaixo e classifique a intenção em UMA palavra:
 
 - "support" = cliente já comprou e tem problema (entrega, reembolso, rastreio, reclamação)
@@ -418,18 +431,91 @@ SOBRE IMAGENS RECEBIDAS
 Se o cliente mencionar que enviou uma foto ou imagem e você não conseguir ver o conteúdo, diga claramente:
 "Recebi sua imagem, mas infelizmente não consigo visualizar fotos por aqui. Pode me descrever o produto ou me dizer o nome dele?"
 
-NUNCA ignore que uma imagem foi enviada. Sempre reconheça o envio.`;
+NUNCA ignore que uma imagem foi enviada. Sempre reconheça o envio.
+
+━━━━━━━━━━━━━━━━━━━━━━
+REGRAS DE FECHAMENTO — OBRIGATÓRIAS
+━━━━━━━━━━━━━━━━━━━━━━
+
+SE o cliente disse "sim", "pode ser", "quero", "ok", "manda" em resposta a uma oferta ou pergunta sua:
+→ Aja imediatamente. Não repita a pergunta. Execute o que foi pedido.
+
+SE você prometeu enviar um link e o cliente confirmou:
+→ Na próxima mensagem, envie o link. Nunca pergunte de novo.
+
+SE você já sabe produto + cor + tamanho:
+→ Nunca mais pergunte sobre produto, cor ou tamanho.
+→ Use essa informação diretamente: "Perfeito! O Vestido Daphne preto M..."
+
+SE o cliente repetiu a mesma informação mais de uma vez:
+→ Reconheça explicitamente: "Desculpe, já vi que você me informou o Daphne preto M. Vou resolver isso agora."
+→ Nunca faça o cliente repetir uma terceira vez.
+
+FLUXO CORRETO quando cliente quer comprar com prazo:
+1ª mensagem — confirme o produto que ele quer
+2ª mensagem — responda a dúvida do prazo/frete com SIM ou NÃO
+3ª mensagem — envie o link ou próxima ação concreta
+
+Nunca fique em loop de "vou verificar". Se não sabe a resposta, diga que não sabe e ofereça alternativa.`;
 
         const systemPrompt = `${baseSystemPrompt}\n\n${modePrompt}${settings.ai_system_prompt ? `\n\n━━━━━━━━━━━━━━━━━━━━━━\nREGRAS ESPECÍFICAS DESTA LOJA\n━━━━━━━━━━━━━━━━━━━━━━\n\n${settings.ai_system_prompt}` : ""}`;
 
-        // Construir contexto explícito da conversa para evitar loops de perguntas repetidas
+        // ── Extração de fatos via IA para evitar loops ──
+        let facts: Record<string, string | null> = {};
+        if (formattedHistory.length > 0) {
+          const factExtractionPrompt = `Leia essa conversa e extraia os fatos que o cliente já forneceu.
+Retorne SOMENTE um JSON com os campos encontrados (use null se não mencionado):
+
+{
+  "produto": null,
+  "cor": null,
+  "tamanho": null,
+  "cep": null,
+  "prazo_desejado": null,
+  "numero_pedido": null,
+  "acao_solicitada": null
+}
+
+Conversa:
+${formattedHistory}`;
+
+          try {
+            let factsRaw = "";
+            if (aiProvider === "openai") {
+              const fRes = await fetch("https://api.openai.com/v1/responses", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${openaiApiKey}` },
+                body: JSON.stringify({ model: aiModel, instructions: "Retorne SOMENTE JSON válido, sem markdown.", input: factExtractionPrompt, store: false }),
+              });
+              const fData = await fRes.json();
+              factsRaw = fData.output_text || fData.output?.[0]?.content?.[0]?.text || "";
+            } else if (aiProvider === "anthropic") {
+              const fRes = await fetch("https://api.anthropic.com/v1/messages", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "x-api-key": anthropicApiKey, "anthropic-version": "2023-06-01" },
+                body: JSON.stringify({ model: aiModel, max_tokens: 200, messages: [{ role: "user", content: factExtractionPrompt }] }),
+              });
+              const fData = await fRes.json();
+              factsRaw = fData.content?.[0]?.text || "";
+            }
+            const clean = factsRaw.replace(/```json|```/g, '').trim();
+            facts = JSON.parse(clean);
+          } catch (e) {
+            console.error("Fact extraction error (non-fatal):", e);
+            facts = {};
+          }
+        }
+
+        const factsContext = Object.entries(facts)
+          .filter(([, v]) => v !== null)
+          .map(([k, v]) => `${k}: ${v}`)
+          .join('\n');
+
+        console.log(`Fatos extraídos para ticket ${item.ticket_id}: ${factsContext || 'nenhum'}`);
+
+        // Construir contexto
         const memoryContext = memory
           ? `DADOS DO CLIENTE: Nome: ${memory.customer_name || "desconhecido"}, Idioma: ${memory.preferred_language}, Último sentimento: ${memory.last_sentiment || "neutro"}, Total interações: ${memory.total_interactions}${memory.notes ? `, Notas: ${memory.notes}` : ""}`
-          : "";
-
-        // Resumo explícito do histórico para incluir no userMessage
-        const conversationSummary = messages && messages.length > 0
-          ? `RESUMO DO QUE JÁ FOI DITO NESTA CONVERSA:\n${messages.map(m => `${m.direction === "inbound" ? "CLIENTE" : "SOPHIA"}: ${m.content || "[mídia]"}`).join("\n")}\n\nATENÇÃO: Use essas informações. NÃO peça informações que já foram fornecidas acima.`
           : "";
 
         const sentimentInstruction = ticket.sentiment === "frustrated"
@@ -438,15 +524,25 @@ NUNCA ignore que uma imagem foi enviada. Sempre reconheça o envio.`;
           ? "O cliente está FURIOSO. Máxima calma. Desculpe-se antes de resolver."
           : "";
 
-        // Montar userMessage consolidado com todo o contexto
+        // Montar userMessage com fatos extraídos em posição de destaque
         const userMessage = `
-${conversationSummary}
+══════════════════════════════
+FATOS JÁ FORNECIDOS PELO CLIENTE NESTA CONVERSA:
+${factsContext || 'nenhum fato identificado ainda'}
+
+REGRA ABSOLUTA: Se um fato já está listado acima, NUNCA pergunte sobre ele novamente.
+══════════════════════════════
+
+HISTÓRICO COMPLETO DA CONVERSA:
+${formattedHistory}
+
+══════════════════════════════
+NOVAS MENSAGENS DO CLIENTE AGUARDANDO RESPOSTA:
+${consolidatedInput}
+══════════════════════════════
 
 ${memoryContext}
 ${sentimentInstruction}
-
-NOVAS MENSAGENS DO CLIENTE (responda a TUDO isso):
-${consolidatedInput}
 `.trim();
 
         const chatMessages = [
@@ -462,16 +558,18 @@ ${consolidatedInput}
         }
 
         // Adicionar histórico como mensagens alternadas para manter contexto na API
-        if (messages) {
-          for (const msg of messages.slice(0, -1)) {
+        if (messageHistory) {
+          for (const msg of messageHistory.slice(0, -1)) {
             chatMessages.push({
               role: msg.direction === "inbound" ? "user" : "assistant",
-              content: msg.content || "[mídia]",
+              content: msg.message_type === "image" ? "[cliente enviou uma imagem]"
+                : msg.message_type === "audio" ? `[áudio transcrito: ${msg.content || ""}]`
+                : msg.content || "[mídia]",
             });
           }
         }
 
-        // A última mensagem do usuário inclui o contexto completo + mensagens pendentes
+        // A última mensagem do usuário inclui o contexto completo + fatos + mensagens pendentes
         chatMessages.push({ role: "user", content: userMessage });
 
         // Call AI
@@ -548,7 +646,7 @@ ${consolidatedInput}
 
         // Detect sentiment
         let sentiment = "neutral";
-        const lowerContent = (messages?.slice(-1)[0]?.content || "").toLowerCase();
+        const lowerContent = (messageHistory?.slice(-1)[0]?.content || "").toLowerCase();
         if (lowerContent.match(/(obrigad|perfeito|ótimo|excelente|adorei|amei|maravilh)/)) sentiment = "positive";
         else if (lowerContent.match(/(demora|atraso|problema|errado|defeito|não funciona)/)) sentiment = "frustrated";
         else if (lowerContent.match(/(absurd|vergonha|péssimo|horrível|nunca mais|processsar|procon)/)) sentiment = "angry";
@@ -602,10 +700,16 @@ ${consolidatedInput}
           sentiment,
         }).eq("id", item.ticket_id);
 
-        // Update customer memory
+        // Salvar fatos extraídos na memória do cliente
+        const factsNote = Object.values(facts).some(v => v !== null)
+          ? `Produto interesse: ${facts.produto || ''} ${facts.cor || ''} ${facts.tamanho || ''}. Prazo: ${facts.prazo_desejado || ''}. CEP: ${facts.cep || ''}`.trim()
+          : memory?.notes || null;
+
         await supabase.from("customer_memory").upsert({
           store_id: item.store_id,
           customer_phone: ticket.customer_phone,
+          customer_name: ticket.customer_name || memory?.customer_name || null,
+          notes: factsNote,
           last_sentiment: sentiment,
           total_interactions: (memory?.total_interactions || 0) + 1,
           updated_at: new Date().toISOString(),

@@ -116,17 +116,32 @@ Responda SOMENTE uma palavra: support, sales ou unclear`;
         try {
           let intentRaw = "";
           if (aiProvider === "openai") {
-            const res = await fetch("https://api.openai.com/v1/chat/completions", {
-              method: "POST",
-              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${openaiApiKey}` },
-              body: JSON.stringify({ model: aiModel, messages: [{ role: "user", content: intentDetectionPrompt }], max_tokens: 10 }),
-            });
-            const data = await res.json();
-            if (!res.ok) {
-              console.error(`OpenAI intent error: HTTP ${res.status}`, JSON.stringify(data.error || data));
-              throw new Error(`OpenAI API error: ${data.error?.message || res.status}`);
+            // Responses API: POST /v1/responses
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 20000);
+            try {
+              const res = await fetch("https://api.openai.com/v1/responses", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${openaiApiKey}` },
+                body: JSON.stringify({
+                  model: aiModel,
+                  instructions: "Responda SOMENTE uma palavra: support, sales ou unclear",
+                  input: intentDetectionPrompt,
+                  store: false,
+                }),
+                signal: controller.signal,
+              });
+              clearTimeout(timeout);
+              const data = await res.json();
+              if (!res.ok) {
+                console.error(`OpenAI intent error: HTTP ${res.status}`, JSON.stringify(data.error || data));
+                throw new Error(`OpenAI API error: ${data.error?.message || res.status}`);
+              }
+              intentRaw = data.output_text || data.output?.[0]?.content?.[0]?.text || "";
+            } catch (e) {
+              if (e.name === "AbortError") throw new Error("OpenAI timeout na detecção de intenção");
+              throw e;
             }
-            intentRaw = data.choices?.[0]?.message?.content || "";
           } else if (aiProvider === "anthropic") {
             const res = await fetch("https://api.anthropic.com/v1/messages", {
               method: "POST",
@@ -408,24 +423,44 @@ Use naturalmente quando apropriado:
         let responseText = "";
 
         if (aiProvider === "openai") {
-          const res = await fetch("https://api.openai.com/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${openaiApiKey}`,
-            },
-            body: JSON.stringify({
-              model: aiModel,
-              messages: chatMessages,
-              max_tokens: 500,
-            }),
-          });
-          const data = await res.json();
-          if (!res.ok) {
-            console.error(`OpenAI response error: HTTP ${res.status}`, JSON.stringify(data.error || data));
-            throw new Error(`OpenAI API error: ${data.error?.message || res.status}`);
+          // Responses API: POST /v1/responses
+          // Separar system messages como instructions, user/assistant como input
+          const instructions = chatMessages
+            .filter(m => m.role === "system")
+            .map(m => m.content)
+            .join("\n\n");
+          const inputMessages = chatMessages
+            .filter(m => m.role !== "system")
+            .map(m => ({ role: m.role, content: m.content }));
+
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 30000);
+          try {
+            const res = await fetch("https://api.openai.com/v1/responses", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${openaiApiKey}`,
+              },
+              body: JSON.stringify({
+                model: aiModel,
+                instructions,
+                input: inputMessages,
+                store: false,
+              }),
+              signal: controller.signal,
+            });
+            clearTimeout(timeout);
+            const data = await res.json();
+            if (!res.ok) {
+              console.error(`OpenAI response error: HTTP ${res.status}`, JSON.stringify(data.error || data));
+              throw new Error(`OpenAI API error: ${data.error?.message || res.status}`);
+            }
+            responseText = data.output_text || data.output?.[0]?.content?.[0]?.text || "";
+          } catch (e) {
+            if (e.name === "AbortError") throw new Error("OpenAI timeout na geração de resposta (30s)");
+            throw e;
           }
-          responseText = data.choices?.[0]?.message?.content || "";
         } else if (aiProvider === "anthropic") {
           const systemMsg = chatMessages.filter(m => m.role === "system").map(m => m.content).join("\n\n");
           const userMsgs = chatMessages.filter(m => m.role !== "system");

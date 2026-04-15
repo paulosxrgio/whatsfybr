@@ -13,15 +13,15 @@ function normalizePhone(phone: string): string {
 // Gera variações de busca para o telefone
 function phoneSearchVariations(raw: string): string[] {
   const digits = normalizePhone(raw);
+  if (!digits) return [];
   const variations: string[] = [];
 
-  // Com + e código do país
   if (digits.length >= 12) {
     variations.push(`+${digits}`);
     variations.push(digits);
-    // Sem código do país (remove 55 do Brasil)
     if (digits.startsWith("55")) {
       variations.push(digits.slice(2));
+      variations.push(`+55${digits.slice(2)}`);
     }
   } else {
     variations.push(`+55${digits}`);
@@ -29,169 +29,11 @@ function phoneSearchVariations(raw: string): string[] {
     variations.push(digits);
   }
 
-  // Últimos 9 dígitos (número local sem DDD em alguns casos)
   if (digits.length >= 9) {
     variations.push(digits.slice(-9));
   }
 
   return [...new Set(variations)];
-}
-
-// Busca customer na Shopify por telefone usando GraphQL
-async function findCustomerByPhone(
-  storeUrl: string,
-  accessToken: string,
-  phoneVariations: string[]
-): Promise<{ id: string; legacyId: string; displayName: string } | null> {
-  const graphqlUrl = `https://${storeUrl}/admin/api/2024-01/graphql.json`;
-
-  for (const phone of phoneVariations) {
-    const query = `
-      query {
-        customers(first: 3, query: "phone:${phone}") {
-          edges {
-            node {
-              id
-              legacyResourceId
-              displayName
-              phone
-            }
-          }
-        }
-      }
-    `;
-
-    console.log(`[Shopify] Buscando customer com phone: ${phone}`);
-
-    const res = await fetch(graphqlUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Shopify-Access-Token": accessToken,
-      },
-      body: JSON.stringify({ query }),
-    });
-
-    if (!res.ok) {
-      console.error(`[Shopify] GraphQL HTTP ${res.status}: ${res.statusText}`);
-      continue;
-    }
-
-    const data = await res.json();
-
-    if (data.errors) {
-      console.error(`[Shopify] GraphQL errors:`, JSON.stringify(data.errors));
-      continue;
-    }
-
-    const edges = data?.data?.customers?.edges;
-    if (edges && edges.length > 0) {
-      const customer = edges[0].node;
-      console.log(`[Shopify] Customer encontrado: ${customer.displayName} (ID: ${customer.legacyResourceId})`);
-      return {
-        id: customer.id,
-        legacyId: customer.legacyResourceId,
-        displayName: customer.displayName,
-      };
-    }
-  }
-
-  return null;
-}
-
-// Busca últimos pedidos do customer
-async function fetchCustomerOrders(
-  storeUrl: string,
-  accessToken: string,
-  customerId: string
-): Promise<any[]> {
-  const graphqlUrl = `https://${storeUrl}/admin/api/2024-01/graphql.json`;
-
-  const query = `
-    query {
-      orders(first: 5, sortKey: CREATED_AT, reverse: true, query: "customer_id:${customerId}") {
-        edges {
-          node {
-            id
-            name
-            createdAt
-            displayFinancialStatus
-            displayFulfillmentStatus
-            totalPriceSet {
-              shopMoney {
-                amount
-                currencyCode
-              }
-            }
-            lineItems(first: 10) {
-              edges {
-                node {
-                  title
-                  quantity
-                  variant {
-                    title
-                  }
-                }
-              }
-            }
-            fulfillments {
-              trackingInfo {
-                number
-                url
-                company
-              }
-              status
-            }
-          }
-        }
-      }
-    }
-  `;
-
-  const res = await fetch(graphqlUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Shopify-Access-Token": accessToken,
-    },
-    body: JSON.stringify({ query }),
-  });
-
-  if (!res.ok) {
-    console.error(`[Shopify] Orders GraphQL HTTP ${res.status}`);
-    return [];
-  }
-
-  const data = await res.json();
-
-  if (data.errors) {
-    console.error(`[Shopify] Orders errors:`, JSON.stringify(data.errors));
-    return [];
-  }
-
-  const edges = data?.data?.orders?.edges || [];
-
-  return edges.map((e: any) => {
-    const order = e.node;
-    const tracking = order.fulfillments?.[0]?.trackingInfo?.[0];
-
-    return {
-      order_number: order.name,
-      created_at: order.createdAt,
-      financial_status: order.displayFinancialStatus,
-      fulfillment_status: order.displayFulfillmentStatus,
-      total_price: order.totalPriceSet?.shopMoney?.amount,
-      currency: order.totalPriceSet?.shopMoney?.currencyCode,
-      tracking_number: tracking?.number || null,
-      tracking_url: tracking?.url || null,
-      tracking_company: tracking?.company || null,
-      line_items: order.lineItems?.edges?.map((li: any) => ({
-        title: li.node.title,
-        quantity: li.node.quantity,
-        variant: li.node.variant?.title || null,
-      })) || [],
-    };
-  });
 }
 
 Deno.serve(async (req) => {
@@ -200,55 +42,49 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { store_id, customer_phone } = await req.json();
+    const { store_id, customer_phone, customer_name } = await req.json();
 
-    if (!store_id || !customer_phone) {
+    if (!store_id) {
       return new Response(
-        JSON.stringify({ error: "store_id e customer_phone são obrigatórios" }),
+        JSON.stringify({ error: "store_id é obrigatório" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Busca settings da loja
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
 
-    const { data: settings, error: settingsError } = await supabase
+    const { data: settings } = await supabase
       .from("settings")
       .select("shopify_store_url, shopify_client_id, shopify_client_secret")
       .eq("store_id", store_id)
       .maybeSingle();
 
-    if (settingsError || !settings) {
+    if (!settings?.shopify_store_url || !settings?.shopify_client_secret) {
       return new Response(
-        JSON.stringify({ error: "Configurações da loja não encontradas" }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const { shopify_store_url, shopify_client_id, shopify_client_secret } = settings;
-
-    if (!shopify_store_url || !shopify_client_secret) {
-      return new Response(
-        JSON.stringify({ error: "Shopify não configurada", configured: false }),
+        JSON.stringify({ orders: [], configured: false }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const storeUrl = shopify_store_url.replace(/^https?:\/\//, "").replace(/\/admin.*$/, "").replace(/\/+$/, "");
+    const storeUrl = settings.shopify_store_url
+      .replace(/^https?:\/\//, "")
+      .replace(/\/admin.*$/, "")
+      .replace(/\/+$/, "");
 
-    // Determina o access token: shpat_ usa direto, senão faz client_credentials
-    let accessToken = shopify_client_secret;
+    // Determina access token: shpat_ usa direto, senão client_credentials
+    let accessToken = settings.shopify_client_secret;
 
-    if (!shopify_client_secret.startsWith("shpat_") && shopify_client_id) {
+    if (!settings.shopify_client_secret.startsWith("shpat_") && settings.shopify_client_id) {
       console.log(`[Shopify] Obtendo token via client_credentials...`);
       const tokenRes = await fetch(`https://${storeUrl}/admin/oauth/access_token`, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
-          client_id: shopify_client_id,
-          client_secret: shopify_client_secret,
+          client_id: settings.shopify_client_id,
+          client_secret: settings.shopify_client_secret,
           grant_type: "client_credentials",
         }).toString(),
       });
@@ -257,47 +93,114 @@ Deno.serve(async (req) => {
         const errBody = await tokenRes.text();
         console.error(`[Shopify] Token falhou ${tokenRes.status}: ${errBody}`);
         return new Response(
-          JSON.stringify({ error: "Falha ao autenticar na Shopify", status: tokenRes.status }),
+          JSON.stringify({ error: "Falha ao autenticar na Shopify", orders: [] }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
       const tokenData = await tokenRes.json();
       accessToken = tokenData.access_token;
-      console.log(`[Shopify] Token obtido: ${accessToken.slice(0, 10)}...`);
     }
 
-    // Gera variações de busca do telefone
-    const variations = phoneSearchVariations(customer_phone);
-    console.log(`[Shopify] Variações de busca para ${customer_phone}:`, variations);
+    const restHeaders = {
+      "X-Shopify-Access-Token": accessToken,
+      "Content-Type": "application/json",
+    };
 
-    // Busca customer
-    const customer = await findCustomerByPhone(storeUrl, accessToken, variations);
+    let orders: any[] = [];
 
-    if (!customer) {
-      console.log(`[Shopify] Nenhum customer encontrado para ${customer_phone}`);
-      return new Response(
-        JSON.stringify({ orders: [], customer: null, message: "Cliente não encontrado na Shopify" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    // ── 1. Buscar por telefone (REST API, mais confiável para phone) ──
+    const cleanPhone = customer_phone ? normalizePhone(customer_phone) : "";
+    const phoneVariants = cleanPhone ? phoneSearchVariations(customer_phone) : [];
+
+    for (const phone of phoneVariants) {
+      if (orders.length > 0) break;
+      try {
+        const res = await fetch(
+          `https://${storeUrl}/admin/api/2024-01/orders.json?phone=${encodeURIComponent(phone)}&status=any&limit=5`,
+          { headers: restHeaders }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data.orders?.length > 0) {
+            orders = data.orders;
+            console.log(`[Shopify] ${data.orders.length} pedidos encontrados por phone: ${phone}`);
+          }
+        }
+      } catch (e) {
+        console.error(`[Shopify] Erro buscando por phone ${phone}:`, e);
+      }
     }
 
-    // Busca pedidos
-    const orders = await fetchCustomerOrders(storeUrl, accessToken, customer.legacyId);
+    // ── 2. Se não achou por telefone, buscar por nome ──
+    if (orders.length === 0 && customer_name) {
+      const firstName = customer_name.split(" ")[0];
+      console.log(`[Shopify] Buscando por nome: ${firstName}`);
+      try {
+        const res = await fetch(
+          `https://${storeUrl}/admin/api/2024-01/orders.json?status=any&limit=10`,
+          { headers: restHeaders }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          orders = (data.orders || []).filter((o: any) => {
+            const fullName = `${o.customer?.first_name || ""} ${o.customer?.last_name || ""}`.toLowerCase();
+            return fullName.includes(firstName.toLowerCase());
+          });
+          if (orders.length > 0) {
+            console.log(`[Shopify] ${orders.length} pedidos encontrados por nome: ${firstName}`);
+          }
+        }
+      } catch (e) {
+        console.error(`[Shopify] Erro buscando por nome:`, e);
+      }
+    }
 
-    console.log(`[Shopify] ${orders.length} pedidos encontrados para ${customer.displayName}`);
+    // ── 3. Deduplicate por id ──
+    const seen = new Set();
+    orders = orders.filter((o: any) => {
+      if (seen.has(o.id)) return false;
+      seen.add(o.id);
+      return true;
+    });
+
+    // ── 4. Formatar para o frontend ──
+    const formatted = orders.slice(0, 5).map((o: any) => ({
+      id: o.id,
+      order_number: o.name,
+      created_at: o.created_at,
+      financial_status: o.financial_status || "unknown",
+      fulfillment_status: o.fulfillment_status || "unfulfilled",
+      total_price: o.total_price || "0",
+      currency: o.currency || "BRL",
+      customer_email: o.email || null,
+      customer_name: `${o.customer?.first_name || ""} ${o.customer?.last_name || ""}`.trim(),
+      tracking_number: o.fulfillments?.[0]?.tracking_number || null,
+      tracking_url: o.fulfillments?.[0]?.tracking_url || null,
+      tracking_company: o.fulfillments?.[0]?.tracking_company || null,
+      line_items: (o.line_items || []).map((i: any) => ({
+        title: i.title,
+        quantity: i.quantity,
+        price: i.price,
+        variant: i.variant_title || null,
+      })),
+    }));
+
+    console.log(`[Shopify] Retornando ${formatted.length} pedidos formatados`);
 
     return new Response(
       JSON.stringify({
-        orders,
-        customer: { name: customer.displayName, id: customer.legacyId },
+        orders: formatted,
+        customer: formatted.length > 0
+          ? { name: formatted[0].customer_name, email: formatted[0].customer_email }
+          : null,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
     console.error("[Shopify] Erro:", err);
     return new Response(
-      JSON.stringify({ error: "Erro interno ao buscar pedidos" }),
+      JSON.stringify({ error: "Erro interno ao buscar pedidos", orders: [] }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

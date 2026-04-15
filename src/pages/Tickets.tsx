@@ -245,7 +245,7 @@ const TicketsPage = () => {
       setShopifyError(null);
       try {
         const { data, error } = await supabase.functions.invoke("fetch-shopify-orders", {
-          body: { store_id: currentStore.id, customer_phone: selectedTicket.customer_phone },
+          body: { store_id: currentStore.id, customer_phone: selectedTicket.customer_phone, customer_name: selectedTicket.customer_name },
         });
         if (error) throw error;
         if (data?.configured === false) {

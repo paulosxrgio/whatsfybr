@@ -333,7 +333,7 @@ const TicketsPage = () => {
   });
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full overflow-hidden">
       {/* Ticket List */}
       <div className="w-80 border-r flex flex-col bg-card">
         <div className="p-3 space-y-2 border-b">
@@ -414,7 +414,7 @@ const TicketsPage = () => {
       </div>
 
       {/* Chat Area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0">
         {selectedTicket ? (
           <>
             {/* Header */}

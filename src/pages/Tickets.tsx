@@ -466,6 +466,14 @@ const TicketsPage = () => {
                 <button onClick={toggleTicketStatus} className="text-xs px-3 py-1 rounded border hover:bg-muted transition-colors">
                   {selectedTicket.status === "open" ? "Fechar" : "Reabrir"}
                 </button>
+                <button
+                  onClick={handleExportChat}
+                  disabled={exporting || messages.length === 0}
+                  title="Exportar conversa como imagem"
+                  className="text-xs px-2 py-1 rounded border hover:bg-muted transition-colors disabled:opacity-50"
+                >
+                  {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
+                </button>
               </div>
             </div>
 

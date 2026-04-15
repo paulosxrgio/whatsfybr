@@ -420,6 +420,35 @@ Se o cliente mencionar que enviou uma foto ou imagem e você não conseguir ver 
 
 NUNCA ignore que uma imagem foi enviada. Sempre reconheça o envio.`;
 
+        const systemPrompt = `${baseSystemPrompt}\n\n${modePrompt}${settings.ai_system_prompt ? `\n\n━━━━━━━━━━━━━━━━━━━━━━\nREGRAS ESPECÍFICAS DESTA LOJA\n━━━━━━━━━━━━━━━━━━━━━━\n\n${settings.ai_system_prompt}` : ""}`;
+
+        // Construir contexto explícito da conversa para evitar loops de perguntas repetidas
+        const memoryContext = memory
+          ? `DADOS DO CLIENTE: Nome: ${memory.customer_name || "desconhecido"}, Idioma: ${memory.preferred_language}, Último sentimento: ${memory.last_sentiment || "neutro"}, Total interações: ${memory.total_interactions}${memory.notes ? `, Notas: ${memory.notes}` : ""}`
+          : "";
+
+        // Resumo explícito do histórico para incluir no userMessage
+        const conversationSummary = messages && messages.length > 0
+          ? `RESUMO DO QUE JÁ FOI DITO NESTA CONVERSA:\n${messages.map(m => `${m.direction === "inbound" ? "CLIENTE" : "SOPHIA"}: ${m.content || "[mídia]"}`).join("\n")}\n\nATENÇÃO: Use essas informações. NÃO peça informações que já foram fornecidas acima.`
+          : "";
+
+        const sentimentInstruction = ticket.sentiment === "frustrated"
+          ? "O cliente está FRUSTRADO. Valide o sentimento PRIMEIRO."
+          : ticket.sentiment === "angry"
+          ? "O cliente está FURIOSO. Máxima calma. Desculpe-se antes de resolver."
+          : "";
+
+        // Montar userMessage consolidado com todo o contexto
+        const userMessage = `
+${conversationSummary}
+
+${memoryContext}
+${sentimentInstruction}
+
+NOVAS MENSAGENS DO CLIENTE (responda a TUDO isso):
+${consolidatedInput}
+`.trim();
+
         const chatMessages = [
           { role: "system", content: systemPrompt },
         ];
@@ -428,25 +457,22 @@ NUNCA ignore que uma imagem foi enviada. Sempre reconheça o envio.`;
         if (pendingMessages && pendingMessages.length > 1) {
           chatMessages.push({
             role: "system",
-            content: `ATENÇÃO: O cliente enviou ${pendingMessages.length} mensagens seguidas antes de você responder. Responda tudo de forma natural e coesa em uma única mensagem, como se fosse uma conversa fluida. Não numere as respostas nem mencione que eram várias mensagens.`,
+            content: `ATENÇÃO: O cliente enviou ${pendingMessages.length} mensagens seguidas. Responda tudo de forma natural e coesa em uma única mensagem.`,
           });
         }
 
-        if (memory) {
-          chatMessages.push({
-            role: "system",
-            content: `Contexto do cliente: Nome: ${memory.customer_name || "desconhecido"}, Idioma: ${memory.preferred_language}, Último sentimento: ${memory.last_sentiment || "neutro"}, Total interações: ${memory.total_interactions}${memory.notes ? `, Notas: ${memory.notes}` : ""}`,
-          });
-        }
-
+        // Adicionar histórico como mensagens alternadas para manter contexto na API
         if (messages) {
-          for (const msg of messages) {
+          for (const msg of messages.slice(0, -1)) {
             chatMessages.push({
               role: msg.direction === "inbound" ? "user" : "assistant",
               content: msg.content || "[mídia]",
             });
           }
         }
+
+        // A última mensagem do usuário inclui o contexto completo + mensagens pendentes
+        chatMessages.push({ role: "user", content: userMessage });
 
         // Call AI
         let responseText = "";

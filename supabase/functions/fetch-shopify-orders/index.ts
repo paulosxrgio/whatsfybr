@@ -83,15 +83,18 @@ Deno.serve(async (req) => {
             },
           }
         );
-        if (res.ok) {
-          const data = await res.json();
-          console.log(`[Shopify] Busca "${phone}": ${data.customers?.length || 0} resultados`);
-          if (data.customers?.length > 0) {
-            customerId = String(data.customers[0].id);
-            customerName = `${data.customers[0].first_name || ""} ${data.customers[0].last_name || ""}`.trim();
-            console.log(`[Shopify] ENCONTRADO: ${customerId} — ${customerName} — ${data.customers[0].phone}`);
-            break;
-          }
+        if (!res.ok) {
+          const errBody = await res.text();
+          console.error(`[Shopify] REST customers/search HTTP ${res.status} para "${phone}": ${errBody}`);
+          continue;
+        }
+        const data = await res.json();
+        console.log(`[Shopify] Busca "${phone}": ${data.customers?.length || 0} resultados`);
+        if (data.customers?.length > 0) {
+          customerId = String(data.customers[0].id);
+          customerName = `${data.customers[0].first_name || ""} ${data.customers[0].last_name || ""}`.trim();
+          console.log(`[Shopify] ENCONTRADO: ${customerId} — ${customerName} — ${data.customers[0].phone}`);
+          break;
         }
       } catch (e) {
         console.error(`[Shopify] Erro variante ${phone}:`, e);

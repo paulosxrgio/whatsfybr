@@ -44,7 +44,8 @@ Deno.serve(async (req) => {
       .replace(/\/+$/, "");
 
     const accessToken = settings.shopify_client_secret;
-    const restHeaders = {
+    const graphqlEndpoint = `https://${shopifyUrl}/admin/api/2024-01/graphql.json`;
+    const headers = {
       "X-Shopify-Access-Token": accessToken,
       "Content-Type": "application/json",
     };
@@ -58,118 +59,208 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Remover DDI 55 se existir para pegar o número local
     const withoutCountry = cleanPhone.startsWith("55") ? cleanPhone.slice(2) : cleanPhone;
     const ddd = withoutCountry.slice(0, 2);
     const num = withoutCountry.slice(2);
 
-    // Gerar TODAS as variantes de formato possíveis no Shopify
     const phoneVariants = [
-      cleanPhone,
-      `+${cleanPhone}`,
       `+55${withoutCountry}`,
-      withoutCountry,
       `+55 ${ddd} ${num.slice(0, 5)}-${num.slice(5)}`,
       `+55 ${ddd} ${num}`,
-      `55 ${ddd} ${num.slice(0, 5)}-${num.slice(5)}`,
-      `(${ddd}) ${num.slice(0, 5)}-${num.slice(5)}`,
-      `${ddd} ${num.slice(0, 5)}-${num.slice(5)}`,
-      `${ddd}${num}`,
-    ].filter((v, i, arr) => arr.indexOf(v) === i);
+      `55${withoutCountry}`,
+      withoutCountry,
+      cleanPhone,
+    ].filter((v, i, arr) => v && arr.indexOf(v) === i);
 
-    let customerId: string | null = null;
-    let orders: any[] = [];
+    // GraphQL query para buscar cliente por telefone
+    const customerQuery = (phone: string) => JSON.stringify({
+      query: `{
+        customers(first: 5, query: "phone:\\"${phone}\\"") {
+          edges {
+            node {
+              id
+              firstName
+              lastName
+              email
+              phone
+              orders(first: 10, sortKey: CREATED_AT, reverse: true) {
+                edges {
+                  node {
+                    id
+                    name
+                    displayFinancialStatus
+                    displayFulfillmentStatus
+                    totalPriceSet { shopMoney { amount currencyCode } }
+                    createdAt
+                    email
+                    lineItems(first: 10) {
+                      edges {
+                        node {
+                          title
+                          quantity
+                          originalUnitPriceSet { shopMoney { amount currencyCode } }
+                          variant { title }
+                        }
+                      }
+                    }
+                    fulfillments(first: 5) {
+                      trackingInfo(first: 1) { number url }
+                      status
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }`
+    });
 
-    // ESTRATÉGIA 1: customers/search por cada variante de telefone
+    let customerNode: any = null;
+
+    // ESTRATÉGIA 1: Buscar cliente via GraphQL por cada variante de telefone
     for (const phone of phoneVariants) {
       try {
-        const res = await fetch(
-          `https://${shopifyUrl}/admin/api/2024-01/customers/search.json?query=phone:${encodeURIComponent(phone)}&limit=5&fields=id,phone,email,first_name,last_name`,
-          { headers: restHeaders }
-        );
+        const res = await fetch(graphqlEndpoint, {
+          method: "POST",
+          headers,
+          body: customerQuery(phone),
+        });
         if (res.ok) {
           const data = await res.json();
-          if (data.customers?.length > 0) {
-            customerId = data.customers[0].id;
-            console.log(`[Shopify] Cliente encontrado por telefone "${phone}": ${customerId}`);
+          const customers = data?.data?.customers?.edges;
+          if (customers?.length > 0) {
+            customerNode = customers[0].node;
+            console.log(`[Shopify] Cliente encontrado via GraphQL, telefone "${phone}": ${customerNode.id}`);
             break;
           }
         }
       } catch (e) {
-        console.error(`[Shopify] Erro variante ${phone}:`, e);
+        console.error(`[Shopify] GraphQL erro variante ${phone}:`, e);
       }
     }
 
-    // ESTRATÉGIA 2: buscar direto nos pedidos recentes por telefone
-    if (!customerId) {
-      console.log("[Shopify] Não achou por customers/search, tentando orders direto...");
+    // ESTRATÉGIA 2: Fallback - buscar nos pedidos recentes
+    if (!customerNode) {
+      console.log("[Shopify] Não achou cliente, buscando nos pedidos recentes...");
       try {
-        const res = await fetch(
-          `https://${shopifyUrl}/admin/api/2024-01/orders.json?status=any&limit=50&fields=id,order_number,name,phone,customer,financial_status,fulfillment_status,line_items,fulfillments,total_price,currency,created_at,email`,
-          { headers: restHeaders }
-        );
+        const res = await fetch(graphqlEndpoint, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            query: `{
+              orders(first: 50, query: "status:any") {
+                edges {
+                  node {
+                    id
+                    name
+                    displayFinancialStatus
+                    displayFulfillmentStatus
+                    totalPriceSet { shopMoney { amount currencyCode } }
+                    createdAt
+                    email
+                    phone
+                    customer { id firstName lastName phone email }
+                    lineItems(first: 10) {
+                      edges {
+                        node {
+                          title
+                          quantity
+                          originalUnitPriceSet { shopMoney { amount currencyCode } }
+                          variant { title }
+                        }
+                      }
+                    }
+                    fulfillments(first: 5) {
+                      trackingInfo(first: 1) { number url }
+                      status
+                    }
+                  }
+                }
+              }
+            }`
+          }),
+        });
         if (res.ok) {
           const data = await res.json();
-          const matched = data.orders?.filter((o: any) => {
+          const allOrders = data?.data?.orders?.edges?.map((e: any) => e.node) || [];
+
+          const matched = allOrders.filter((o: any) => {
             const orderPhone = (o.phone || o.customer?.phone || "").replace(/\D/g, "");
-            return (
+            return orderPhone && (
               orderPhone.includes(withoutCountry) ||
-              withoutCountry.includes(orderPhone) ||
-              orderPhone.endsWith(withoutCountry) ||
-              cleanPhone.endsWith(orderPhone.replace(/^55/, ""))
+              withoutCountry.includes(orderPhone.slice(-8)) ||
+              orderPhone.endsWith(withoutCountry.slice(-8))
             );
           });
-          if (matched?.length > 0) {
-            orders = matched;
-            console.log(`[Shopify] Pedidos encontrados direto nos orders: ${orders.length}`);
+
+          if (matched.length > 0) {
+            const formatted = matched.map((o: any) => ({
+              id: o.id,
+              order_number: o.name?.replace("#", ""),
+              name: o.name,
+              status: o.displayFulfillmentStatus?.toLowerCase() || "unfulfilled",
+              financial_status: o.displayFinancialStatus?.toLowerCase() || "pending",
+              total_price: o.totalPriceSet?.shopMoney?.amount,
+              currency: o.totalPriceSet?.shopMoney?.currencyCode,
+              created_at: o.createdAt,
+              customer_email: o.email,
+              customer_name: `${o.customer?.firstName || ""} ${o.customer?.lastName || ""}`.trim(),
+              tracking_number: o.fulfillments?.[0]?.trackingInfo?.[0]?.number || null,
+              tracking_url: o.fulfillments?.[0]?.trackingInfo?.[0]?.url || null,
+              items: o.lineItems?.edges?.map((e: any) => ({
+                title: e.node.title,
+                quantity: e.node.quantity,
+                price: e.node.originalUnitPriceSet?.shopMoney?.amount,
+                variant_title: e.node.variant?.title,
+              })) || [],
+            }));
+
+            console.log(`[Shopify] ${formatted.length} pedidos encontrados via fallback para ${cleanPhone}`);
+            return new Response(
+              JSON.stringify({ orders: formatted }),
+              { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
           }
         }
       } catch (e) {
-        console.error("[Shopify] Erro buscando orders direto:", e);
+        console.error("[Shopify] Erro fallback orders:", e);
       }
     }
 
-    // Se achou o customerId, buscar pedidos pelo cliente
-    if (customerId && orders.length === 0) {
-      try {
-        const res = await fetch(
-          `https://${shopifyUrl}/admin/api/2024-01/orders.json?customer_id=${customerId}&status=any&limit=10`,
-          { headers: restHeaders }
-        );
-        if (res.ok) {
-          const data = await res.json();
-          orders = data.orders || [];
-          console.log(`[Shopify] Pedidos por customer_id ${customerId}: ${orders.length}`);
-        }
-      } catch (e) {
-        console.error("[Shopify] Erro buscando por customer_id:", e);
-      }
+    if (!customerNode) {
+      console.log(`[Shopify] Nenhum cliente encontrado para ${cleanPhone}`);
+      return new Response(
+        JSON.stringify({ orders: [] }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
-    // Formatar pedidos
+    // Formatar pedidos do cliente encontrado
+    const orders = customerNode.orders?.edges?.map((e: any) => e.node) || [];
+
     const formatted = orders.map((o: any) => ({
       id: o.id,
-      order_number: o.order_number,
+      order_number: o.name?.replace("#", ""),
       name: o.name,
-      status: o.fulfillment_status || "unfulfilled",
-      financial_status: o.financial_status,
-      total_price: o.total_price,
-      currency: o.currency,
-      created_at: o.created_at,
+      status: o.displayFulfillmentStatus?.toLowerCase() || "unfulfilled",
+      financial_status: o.displayFinancialStatus?.toLowerCase() || "pending",
+      total_price: o.totalPriceSet?.shopMoney?.amount,
+      currency: o.totalPriceSet?.shopMoney?.currencyCode,
+      created_at: o.createdAt,
       customer_email: o.email,
-      customer_name: `${o.customer?.first_name || ""} ${o.customer?.last_name || ""}`.trim(),
-      tracking_number: o.fulfillments?.[0]?.tracking_number || null,
-      tracking_url: o.fulfillments?.[0]?.tracking_url || null,
-      items: (o.line_items || []).map((i: any) => ({
-        title: i.title,
-        quantity: i.quantity,
-        price: i.price,
-        variant_title: i.variant_title,
-      })),
+      customer_name: `${customerNode.firstName || ""} ${customerNode.lastName || ""}`.trim(),
+      tracking_number: o.fulfillments?.[0]?.trackingInfo?.[0]?.number || null,
+      tracking_url: o.fulfillments?.[0]?.trackingInfo?.[0]?.url || null,
+      items: o.lineItems?.edges?.map((e: any) => ({
+        title: e.node.title,
+        quantity: e.node.quantity,
+        price: e.node.originalUnitPriceSet?.shopMoney?.amount,
+        variant_title: e.node.variant?.title,
+      })) || [],
     }));
 
-    console.log(`[Shopify] Total formatado: ${formatted.length} pedidos para ${cleanPhone}`);
-
+    console.log(`[Shopify] ${formatted.length} pedidos encontrados para ${cleanPhone}`);
     return new Response(
       JSON.stringify({ orders: formatted }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }

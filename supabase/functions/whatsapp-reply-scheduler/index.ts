@@ -646,7 +646,7 @@ ${sentimentInstruction}
 
         // Detect sentiment
         let sentiment = "neutral";
-        const lowerContent = (messages?.slice(-1)[0]?.content || "").toLowerCase();
+        const lowerContent = (messageHistory?.slice(-1)[0]?.content || "").toLowerCase();
         if (lowerContent.match(/(obrigad|perfeito|ótimo|excelente|adorei|amei|maravilh)/)) sentiment = "positive";
         else if (lowerContent.match(/(demora|atraso|problema|errado|defeito|não funciona)/)) sentiment = "frustrated";
         else if (lowerContent.match(/(absurd|vergonha|péssimo|horrível|nunca mais|processsar|procon)/)) sentiment = "angry";
@@ -700,10 +700,16 @@ ${sentimentInstruction}
           sentiment,
         }).eq("id", item.ticket_id);
 
-        // Update customer memory
+        // Salvar fatos extraídos na memória do cliente
+        const factsNote = Object.values(facts).some(v => v !== null)
+          ? `Produto interesse: ${facts.produto || ''} ${facts.cor || ''} ${facts.tamanho || ''}. Prazo: ${facts.prazo_desejado || ''}. CEP: ${facts.cep || ''}`.trim()
+          : memory?.notes || null;
+
         await supabase.from("customer_memory").upsert({
           store_id: item.store_id,
           customer_phone: ticket.customer_phone,
+          customer_name: ticket.customer_name || memory?.customer_name || null,
+          notes: factsNote,
           last_sentiment: sentiment,
           total_interactions: (memory?.total_interactions || 0) + 1,
           updated_at: new Date().toISOString(),

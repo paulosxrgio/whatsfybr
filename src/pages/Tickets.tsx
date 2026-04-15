@@ -613,6 +613,76 @@ const TicketsPage = () => {
               <p className="text-xs text-muted-foreground">Nenhuma memória registrada ainda.</p>
             )}
           </div>
+
+          {/* Shopify Orders */}
+          <div className="border-t pt-4 space-y-3">
+            <h4 className="font-semibold text-sm flex items-center gap-1.5">
+              <ShoppingBag className="h-4 w-4" /> Pedidos Shopify
+            </h4>
+            {shopifyLoading ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              </div>
+            ) : shopifyError === "not_configured" ? (
+              <p className="text-xs text-muted-foreground">Shopify não configurada nas Configurações.</p>
+            ) : shopifyError ? (
+              <p className="text-xs text-destructive">Erro ao buscar pedidos.</p>
+            ) : shopifyOrders.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Nenhum pedido encontrado para este telefone.</p>
+            ) : (
+              <div className="space-y-2">
+                {shopifyCustomer && (
+                  <p className="text-xs text-muted-foreground">Cliente: {shopifyCustomer.name}</p>
+                )}
+                {shopifyOrders.map((order, i) => (
+                  <div key={i} className="rounded border bg-muted/30 p-2 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium">{order.order_number}</span>
+                      <span className="text-xs font-medium">
+                        {order.currency} {parseFloat(order.total_price).toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                        order.financial_status === "PAID" ? "bg-green-100 text-green-700" :
+                        order.financial_status === "REFUNDED" ? "bg-red-100 text-red-700" :
+                        "bg-yellow-100 text-yellow-700"
+                      }`}>
+                        {order.financial_status}
+                      </span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                        order.fulfillment_status === "FULFILLED" ? "bg-green-100 text-green-700" :
+                        order.fulfillment_status === "UNFULFILLED" ? "bg-orange-100 text-orange-700" :
+                        "bg-muted text-muted-foreground"
+                      }`}>
+                        {order.fulfillment_status || "UNFULFILLED"}
+                      </span>
+                    </div>
+                    {order.line_items.slice(0, 3).map((item, j) => (
+                      <p key={j} className="text-[10px] text-muted-foreground truncate">
+                        {item.quantity}x {item.title}{item.variant ? ` (${item.variant})` : ""}
+                      </p>
+                    ))}
+                    {order.tracking_number && (
+                      <div className="flex items-center gap-1 text-[10px]">
+                        <Package className="h-3 w-3 text-muted-foreground" />
+                        {order.tracking_url ? (
+                          <a href={order.tracking_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center gap-0.5">
+                            {order.tracking_number} <ExternalLink className="h-2.5 w-2.5" />
+                          </a>
+                        ) : (
+                          <span className="text-muted-foreground">{order.tracking_number}</span>
+                        )}
+                      </div>
+                    )}
+                    <p className="text-[10px] text-muted-foreground">
+                      {new Date(order.created_at).toLocaleDateString("pt-BR")}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

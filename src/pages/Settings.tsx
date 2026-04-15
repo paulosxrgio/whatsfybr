@@ -9,7 +9,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Copy, CheckCircle, Loader2, Info, Wifi, Activity, Zap, ShoppingBag } from "lucide-react";
+import { Copy, CheckCircle, Loader2, Info, Wifi, Activity, Zap, ShoppingBag, Eye, EyeOff } from "lucide-react";
+
+const PasswordInput = ({ value, onChange, placeholder, className }: { value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; placeholder?: string; className?: string }) => {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="relative">
+      <Input value={value} onChange={onChange} type={show ? "text" : "password"} placeholder={placeholder} className={className} />
+      <Button type="button" variant="ghost" size="icon" className="absolute right-0 top-0 h-full px-3 hover:bg-transparent" onClick={() => setShow(!show)}>
+        {show ? <EyeOff className="h-4 w-4 text-muted-foreground" /> : <Eye className="h-4 w-4 text-muted-foreground" />}
+      </Button>
+    </div>
+  );
+};
 
 const DEFAULT_SYSTEM_PROMPT = `Você é Sophia, atendente de suporte da loja via WhatsApp.
 
@@ -163,11 +175,11 @@ const SettingsPage = () => {
           </div>
           <div className="space-y-2">
             <Label>Token</Label>
-            <Input value={settings.zapi_token} onChange={(e) => update("zapi_token", e.target.value)} type="password" />
+            <PasswordInput value={settings.zapi_token} onChange={(e) => update("zapi_token", e.target.value)} />
           </div>
           <div className="space-y-2">
             <Label>Client Token</Label>
-            <Input value={settings.zapi_client_token} onChange={(e) => update("zapi_client_token", e.target.value)} type="password" />
+            <PasswordInput value={settings.zapi_client_token} onChange={(e) => update("zapi_client_token", e.target.value)} />
           </div>
           <div className="space-y-2">
             <Label>URL do Webhook (copie para a Z-API)</Label>
@@ -271,11 +283,11 @@ const SettingsPage = () => {
           </div>
           <div className="space-y-2">
             <Label>Client ID</Label>
-            <Input value={settings.shopify_client_id} onChange={(e) => update("shopify_client_id", e.target.value)} type="password" />
+            <PasswordInput value={settings.shopify_client_id} onChange={(e) => update("shopify_client_id", e.target.value)} />
           </div>
           <div className="space-y-2">
             <Label>Admin API Access Token</Label>
-            <Input value={settings.shopify_client_secret} onChange={(e) => update("shopify_client_secret", e.target.value)} type="password" placeholder="shpat_..." />
+            <PasswordInput value={settings.shopify_client_secret} onChange={(e) => update("shopify_client_secret", e.target.value)} placeholder="shpat_..." />
             <p className="text-xs text-muted-foreground">Token de acesso da API Admin (começa com shpat_)</p>
           </div>
 

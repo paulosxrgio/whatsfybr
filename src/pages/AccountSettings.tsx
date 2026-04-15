@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Loader2, Save, SlidersHorizontal, User, Plug, CheckCircle2, XCircle } from "lucide-react";
+import { Loader2, Save, SlidersHorizontal, User, Plug, CheckCircle2, XCircle, Eye, EyeOff } from "lucide-react";
 
 const modelsByProvider: Record<string, { value: string; label: string }[]> = {
   openai: [
@@ -33,6 +33,7 @@ const AccountSettingsPage = () => {
   const [verifying, setVerifying] = useState(false);
   const [verifyStatus, setVerifyStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [verifyError, setVerifyError] = useState('');
+  const [showApiKey, setShowApiKey] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -130,16 +131,21 @@ const AccountSettingsPage = () => {
           </div>
           <div className="space-y-2">
             <Label>Chave API {aiProvider === "openai" ? "OpenAI" : "Anthropic"}</Label>
-            <Input
-              type="password"
-              placeholder="sk-..."
-              value={aiProvider === "openai" ? openaiKey : anthropicKey}
-              onChange={(e) => {
-                setVerifyStatus('idle');
-                setVerifyError('');
-                aiProvider === "openai" ? setOpenaiKey(e.target.value) : setAnthropicKey(e.target.value);
-              }}
-            />
+            <div className="relative">
+              <Input
+                type={showApiKey ? "text" : "password"}
+                placeholder="sk-..."
+                value={aiProvider === "openai" ? openaiKey : anthropicKey}
+                onChange={(e) => {
+                  setVerifyStatus('idle');
+                  setVerifyError('');
+                  aiProvider === "openai" ? setOpenaiKey(e.target.value) : setAnthropicKey(e.target.value);
+                }}
+              />
+              <Button type="button" variant="ghost" size="icon" className="absolute right-0 top-0 h-full px-3 hover:bg-transparent" onClick={() => setShowApiKey(!showApiKey)}>
+                {showApiKey ? <EyeOff className="h-4 w-4 text-muted-foreground" /> : <Eye className="h-4 w-4 text-muted-foreground" />}
+              </Button>
+            </div>
             <div className="flex items-center gap-3 mt-2">
               <Button
                 variant="outline"

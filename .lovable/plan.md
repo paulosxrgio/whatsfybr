@@ -1,78 +1,42 @@
 
 
-# Integração Shopify no WhatsApp — Busca de Pedidos por Telefone + Verificação de Tokens
+# Correção do Layout do Chat + Exportação de Conversa
 
-## Visão Geral
+## Problema
 
-Criar uma Edge Function que busca pedidos do cliente na Shopify usando o telefone do ticket WhatsApp, exibir os pedidos na sidebar do chat, e adicionar verificação dos tokens Shopify na página de Configurações.
+O chat usa `flex-1 overflow-y-auto` na area de mensagens (linha 434-435), mas o container pai (`flex h-full`) depende do `<main className="flex-1 overflow-hidden">` no AppLayout. O problema é que sem uma altura fixa definida no container, o `flex-1` pode expandir indefinidamente dependendo do conteúdo. A area de mensagens precisa de um container com scroll interno bem delimitado.
 
-## Arquitetura
+## Plano
 
-```text
-Tickets.tsx (sidebar) → fetch-shopify-orders (Edge Function)
-                              │
-                              ├─ Busca settings (store_url, client_id, client_secret)
-                              ├─ POST /admin/oauth/access_token → access_token
-                              ├─ GraphQL: customers(query: "phone:+55...")
-                              │     ├─ Tenta com código do país
-                              │     └─ Fallback: tenta sem código do país
-                              ├─ Se encontrou → legacyResourceId
-                              ├─ GraphQL: orders(query: "customer_id:XXX", first: 5)
-                              └─ Retorna pedidos formatados
-```
+### 1. Corrigir layout do chat (Tickets.tsx)
 
-## Detalhes Técnicos
+- Mudar o container principal de `flex h-full` para `flex h-full overflow-hidden` para garantir que nada extrapola
+- Envolver a area de mensagens em um container com `min-h-0` (necessario em flex columns para que `overflow-y-auto` funcione corretamente)
+- Garantir que a coluna do chat (`flex-1 flex flex-col min-w-0`) tambem tenha `min-h-0`
+- O resultado: header fixo no topo, input fixo embaixo, mensagens com scroll interno no meio
 
-### 1. Nova Edge Function: `fetch-shopify-orders`
+### 2. Melhorias visuais
 
-Recebe `{ store_id, customer_phone }`. Fluxo:
+- Adicionar padding mais consistente
+- Garantir que a area de scroll nao fique "solta" visualmente
 
-1. Busca `shopify_store_url`, `shopify_client_id`, `shopify_client_secret` da tabela `settings`
-2. Obtém `access_token` via OAuth (`/admin/oauth/access_token`)
-3. Normaliza o telefone: remove não-dígitos, tenta variações com/sem código do país
-4. GraphQL Admin API: `customers(first: 3, query: "phone:+5511999999999")`
-   - Se não encontrar, tenta sem código do país: `phone:11999999999`
-   - Se múltiplos resultados, usa o primeiro
-5. Obtém `legacyResourceId` do customer
-6. GraphQL: `orders(first: 5, sortKey: CREATED_AT, reverse: true, query: "customer_id:12345")`
-7. Retorna array de pedidos com: `order_number`, `total_price`, `currency`, `financial_status`, `fulfillment_status`, `created_at`, `tracking_number`, `tracking_url`, `line_items[]`
+### 3. Exportar conversa como imagem (Tickets.tsx)
 
-**Nota sobre autenticação Shopify**: O fluxo `client_id` + `client_secret` via POST a `/admin/oauth/access_token` requer um `code` de autorização OAuth — não funciona só com ID+secret. Vou verificar se o `client_secret` é na verdade um Admin API access token (padrão `shpat_...`). Se for, usa direto como `X-Shopify-Access-Token`. Se não, implemento o fluxo correto com o access token.
+- Instalar `html-to-image` (biblioteca leve, ~5KB)
+- Adicionar botao de camera/download no header do chat
+- Ao clicar: renderizar todas as mensagens em um container temporario off-screen (sem scroll, altura total) e capturar com `toPng()`
+- Gerar download automatico do PNG
 
-### 2. Nova Edge Function: `verify-shopify-connection`
+## Detalhes Tecnicos
 
-Testa os tokens Shopify fazendo uma chamada leve (ex: `shop.name` via GraphQL). Retorna sucesso ou erro detalhado (401 = token inválido, 403 = sem permissão, 404 = loja não encontrada).
+**Layout fix**: A chave e adicionar `min-h-0` no flex container da coluna de chat. Em flexbox, filhos com `flex-1` nao encolhem abaixo do seu conteudo a menos que `min-height: 0` seja definido. Isso forca o `overflow-y-auto` a funcionar.
 
-### 3. Frontend — Sidebar de Pedidos (Tickets.tsx)
-
-Na sidebar do ticket (painel direito, após "Memória do Cliente"), adicionar seção "Pedidos Shopify":
-- Quando um ticket é selecionado, chama `fetch-shopify-orders` com `store_id` + `customer_phone`
-- Exibe lista de pedidos com: número, valor, status, fulfillment, tracking
-- Loading state enquanto busca
-- Mensagem "Nenhum pedido encontrado" ou "Shopify não configurada" quando aplicável
-
-### 4. Frontend — Verificação de Tokens Shopify (Settings.tsx)
-
-Na seção Shopify das Configurações, adicionar botão "Verificar Conexão Shopify":
-- Chama `verify-shopify-connection` com as credenciais da loja
-- Mostra status: conexão válida, token inválido, loja não encontrada, sem permissão
-
-### 5. Normalização de Telefone
-
-Estratégia de busca múltipla na Shopify:
-1. Telefone com `+` e código do país: `+5511999999999`
-2. Sem `+`: `5511999999999`
-3. Só DDD+número (sem código país): `11999999999`
-4. Busca genérica: `phone:*999999999` (últimos 9 dígitos)
-
-Se nenhuma variação encontrar, retorna array vazio.
+**Captura de imagem**: `html-to-image` renderiza um DOM node para canvas/PNG. Para capturar toda a conversa (nao so a parte visivel), criamos um clone temporario do container de mensagens com `overflow: visible` e `height: auto`, capturamos, e removemos.
 
 ## Arquivos
 
-| Arquivo | Mudança |
+| Arquivo | Mudanca |
 |---------|---------|
-| `supabase/functions/fetch-shopify-orders/index.ts` | Nova — busca pedidos por telefone |
-| `supabase/functions/verify-shopify-connection/index.ts` | Nova — testa tokens Shopify |
-| `src/pages/Tickets.tsx` | Adiciona seção de pedidos na sidebar |
-| `src/pages/Settings.tsx` | Adiciona botão verificar conexão Shopify |
+| `src/pages/Tickets.tsx` | Fix layout + botao exportar + logica de captura |
+| `package.json` | Adicionar `html-to-image` |
 

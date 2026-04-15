@@ -82,6 +82,44 @@ const TicketsPage = () => {
   const [shopifyLoading, setShopifyLoading] = useState(false);
   const [shopifyError, setShopifyError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const [exporting, setExporting] = useState(false);
+
+  // Exportar conversa completa como imagem PNG
+  const handleExportChat = useCallback(async () => {
+    const container = messagesContainerRef.current;
+    if (!container || messages.length === 0) return;
+    setExporting(true);
+    try {
+      // Clonar o container para capturar todas as mensagens sem scroll
+      const clone = container.cloneNode(true) as HTMLElement;
+      clone.style.height = "auto";
+      clone.style.overflow = "visible";
+      clone.style.maxHeight = "none";
+      clone.style.position = "absolute";
+      clone.style.left = "-9999px";
+      clone.style.top = "0";
+      clone.style.width = `${container.offsetWidth}px`;
+      document.body.appendChild(clone);
+
+      const dataUrl = await toPng(clone, {
+        backgroundColor: "#efeae2",
+        pixelRatio: 2,
+      });
+
+      document.body.removeChild(clone);
+
+      // Download automático
+      const link = document.createElement("a");
+      link.download = `conversa-${selectedTicket?.customer_phone || "chat"}-${new Date().toISOString().slice(0, 10)}.png`;
+      link.href = dataUrl;
+      link.click();
+      toast.success("Conversa exportada!");
+    } catch {
+      toast.error("Erro ao exportar conversa");
+    }
+    setExporting(false);
+  }, [messages, selectedTicket]);
 
   const fetchTickets = async () => {
     if (!currentStore) return;

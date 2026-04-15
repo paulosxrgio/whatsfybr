@@ -71,35 +71,25 @@ Deno.serve(async (req) => {
     let customerId: string | null = null;
     let customerName = "";
 
-    // ESTRATÉGIA 1: Buscar cliente via GraphQL por cada variante de telefone
+    // ESTRATÉGIA 1: Buscar cliente via REST customers/search (sem prefixo phone:)
     for (const phone of phoneVariants) {
       try {
-        const res = await fetch(graphqlEndpoint, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({
-            query: `{
-              customers(first: 5, query: "phone:${phone}") {
-                edges {
-                  node {
-                    id
-                    firstName
-                    lastName
-                    phone
-                  }
-                }
-              }
-            }`
-          }),
-        });
+        const res = await fetch(
+          `https://${shopifyUrl}/admin/api/2024-01/customers/search.json?query=${encodeURIComponent(phone)}&limit=5&fields=id,first_name,last_name,phone,email`,
+          {
+            headers: {
+              "X-Shopify-Access-Token": accessToken,
+              "Content-Type": "application/json",
+            },
+          }
+        );
         if (res.ok) {
           const data = await res.json();
-          console.log(`[Shopify] Resposta GraphQL para ${phone}:`, JSON.stringify(data?.data?.customers));
-          const customers = data?.data?.customers?.edges;
-          if (customers?.length > 0) {
-            customerId = customers[0].node.id;
-            customerName = `${customers[0].node.firstName || ""} ${customers[0].node.lastName || ""}`.trim();
-            console.log(`[Shopify] CLIENTE ENCONTRADO: ${customerId} — ${customerName}`);
+          console.log(`[Shopify] Busca "${phone}": ${data.customers?.length || 0} resultados`);
+          if (data.customers?.length > 0) {
+            customerId = String(data.customers[0].id);
+            customerName = `${data.customers[0].first_name || ""} ${data.customers[0].last_name || ""}`.trim();
+            console.log(`[Shopify] ENCONTRADO: ${customerId} — ${customerName} — ${data.customers[0].phone}`);
             break;
           }
         }

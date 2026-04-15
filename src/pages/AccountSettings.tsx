@@ -136,6 +136,7 @@ const AccountSettingsPage = () => {
               value={aiProvider === "openai" ? openaiKey : anthropicKey}
               onChange={(e) => {
                 setVerifyStatus('idle');
+                setVerifyError('');
                 aiProvider === "openai" ? setOpenaiKey(e.target.value) : setAnthropicKey(e.target.value);
               }}
             />

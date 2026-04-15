@@ -106,68 +106,40 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Com o customerId em mãos, buscar os pedidos desse cliente
-    const ordersRes = await fetch(graphqlEndpoint, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        query: `{
-          customer(id: "${customerId}") {
-            orders(first: 10, sortKey: CREATED_AT, reverse: true) {
-              edges {
-                node {
-                  id
-                  name
-                  displayFinancialStatus
-                  displayFulfillmentStatus
-                  totalPriceSet { shopMoney { amount currencyCode } }
-                  createdAt
-                  email
-                  lineItems(first: 10) {
-                    edges {
-                      node {
-                        title
-                        quantity
-                        originalUnitPriceSet { shopMoney { amount currencyCode } }
-                        variant { title }
-                      }
-                    }
-                  }
-                  fulfillments(first: 5) {
-                    trackingInfo(first: 1) { number url }
-                    status
-                  }
-                }
-              }
-            }
-          }
-        }`
-      }),
-    });
+    // Com o customerId em mãos, buscar os pedidos desse cliente via REST
+    const ordersRes = await fetch(
+      `https://${shopifyUrl}/admin/api/2024-01/orders.json?customer_id=${customerId}&status=any&limit=10&fields=id,order_number,name,financial_status,fulfillment_status,total_price,currency,created_at,email,line_items,fulfillments`,
+      {
+        headers: {
+          "X-Shopify-Access-Token": accessToken,
+          "Content-Type": "application/json",
+        },
+      }
+    );
 
     const ordersData = await ordersRes.json();
-    const orders = ordersData?.data?.customer?.orders?.edges?.map((e: any) => e.node) || [];
+    const orders = ordersData?.orders || [];
 
     console.log(`[Shopify] ${orders.length} pedidos encontrados para customer ${customerId}`);
 
     const formatted = orders.map((o: any) => ({
       id: o.id,
-      order_number: o.name?.replace("#", ""),
+      order_number: o.order_number,
       name: o.name,
-      status: o.displayFulfillmentStatus?.toLowerCase() || "unfulfilled",
-      financial_status: o.displayFinancialStatus?.toLowerCase() || "pending",
-      total_price: o.totalPriceSet?.shopMoney?.amount,
-      currency: o.totalPriceSet?.shopMoney?.currencyCode,
-      created_at: o.createdAt,
+      status: o.fulfillment_status || "unfulfilled",
+      financial_status: o.financial_status || "pending",
+      total_price: o.total_price,
+      currency: o.currency,
+      created_at: o.created_at,
       customer_email: o.email,
       customer_name: customerName,
-      tracking_number: o.fulfillments?.[0]?.trackingInfo?.[0]?.number || null,
-      tracking_url: o.fulfillments?.[0]?.trackingInfo?.[0]?.url || null,
-      items: o.lineItems?.edges?.map((e: any) => ({
-        title: e.node.title,
-        quantity: e.node.quantity,
-        price: e.node.originalUnitPriceSet?.shopMoney?.amount,
-        variant_title: e.node.variant?.title,
+      tracking_number: o.fulfillments?.[0]?.tracking_number || null,
+      tracking_url: o.fulfillments?.[0]?.tracking_url || null,
+      items: o.line_items?.map((i: any) => ({
+        title: i.title,
+        quantity: i.quantity,
+        price: i.price,
+        variant_title: i.variant_title,
       })) || [],
     }));
 

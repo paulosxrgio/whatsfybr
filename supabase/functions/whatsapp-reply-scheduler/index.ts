@@ -206,7 +206,16 @@ NUNCA:
 - Prometa o que não pode cumprir
 - Invente informações sobre o produto
 - Force a venda de forma óbvia
-- Seja genérica ("ótima escolha!", "com certeza!")`;
+- Seja genérica ("ótima escolha!", "com certeza!")
+
+FECHAMENTO — QUANDO O CLIENTE JÁ DEU TODAS AS INFORMAÇÕES:
+
+Se o cliente já disse produto + cor + tamanho e só tem uma dúvida restante, resolva a dúvida E já direcione para a compra na mesma mensagem:
+
+Exemplo correto:
+"Mary, trabalhamos com envio expresso Sedex! Para o Vestido Daphne preto M chegar antes de 23/04, você precisaria finalizar o pedido hoje. Posso te enviar o link direto para garantir? 😊"
+
+Não espere a próxima mensagem para fechar. Se você tem todas as informações, aja agora.`;
 
         const supportModePrompt = `
 ━━━━━━━━━━━━━━━━━━━━━━
@@ -387,9 +396,58 @@ Use naturalmente quando apropriado:
 - "Faz sentido você estar preocupado"
 - "Boa notícia!"
 - "Já cuido disso"
-- "Me conta mais"`;
+- "Me conta mais"
+
+━━━━━━━━━━━━━━━━━━━━━━
+REGRA ANTI-REPETIÇÃO — CRÍTICA
+━━━━━━━━━━━━━━━━━━━━━━
+
+Antes de fazer qualquer pergunta, verifique o histórico da conversa.
+Se o cliente já respondeu essa pergunta antes, NÃO pergunte de novo.
+Se o cliente repetiu a mesma informação mais de uma vez, reconheça isso:
+"Desculpe, vi que você já tinha me dito sobre o Vestido Daphne. Vou responder agora..."
+
+NUNCA peça uma informação que já apareceu no histórico acima.
+NUNCA ignore uma informação que o cliente forneceu.
+Se o cliente disse o produto, cor e tamanho — você já sabe. Use essa informação.
+
+━━━━━━━━━━━━━━━━━━━━━━
+SOBRE IMAGENS RECEBIDAS
+━━━━━━━━━━━━━━━━━━━━━━
+
+Se o cliente mencionar que enviou uma foto ou imagem e você não conseguir ver o conteúdo, diga claramente:
+"Recebi sua imagem, mas infelizmente não consigo visualizar fotos por aqui. Pode me descrever o produto ou me dizer o nome dele?"
+
+NUNCA ignore que uma imagem foi enviada. Sempre reconheça o envio.`;
 
         const systemPrompt = `${baseSystemPrompt}\n\n${modePrompt}${settings.ai_system_prompt ? `\n\n━━━━━━━━━━━━━━━━━━━━━━\nREGRAS ESPECÍFICAS DESTA LOJA\n━━━━━━━━━━━━━━━━━━━━━━\n\n${settings.ai_system_prompt}` : ""}`;
+
+        // Construir contexto explícito da conversa para evitar loops de perguntas repetidas
+        const memoryContext = memory
+          ? `DADOS DO CLIENTE: Nome: ${memory.customer_name || "desconhecido"}, Idioma: ${memory.preferred_language}, Último sentimento: ${memory.last_sentiment || "neutro"}, Total interações: ${memory.total_interactions}${memory.notes ? `, Notas: ${memory.notes}` : ""}`
+          : "";
+
+        // Resumo explícito do histórico para incluir no userMessage
+        const conversationSummary = messages && messages.length > 0
+          ? `RESUMO DO QUE JÁ FOI DITO NESTA CONVERSA:\n${messages.map(m => `${m.direction === "inbound" ? "CLIENTE" : "SOPHIA"}: ${m.content || "[mídia]"}`).join("\n")}\n\nATENÇÃO: Use essas informações. NÃO peça informações que já foram fornecidas acima.`
+          : "";
+
+        const sentimentInstruction = ticket.sentiment === "frustrated"
+          ? "O cliente está FRUSTRADO. Valide o sentimento PRIMEIRO."
+          : ticket.sentiment === "angry"
+          ? "O cliente está FURIOSO. Máxima calma. Desculpe-se antes de resolver."
+          : "";
+
+        // Montar userMessage consolidado com todo o contexto
+        const userMessage = `
+${conversationSummary}
+
+${memoryContext}
+${sentimentInstruction}
+
+NOVAS MENSAGENS DO CLIENTE (responda a TUDO isso):
+${consolidatedInput}
+`.trim();
 
         const chatMessages = [
           { role: "system", content: systemPrompt },
@@ -399,25 +457,22 @@ Use naturalmente quando apropriado:
         if (pendingMessages && pendingMessages.length > 1) {
           chatMessages.push({
             role: "system",
-            content: `ATENÇÃO: O cliente enviou ${pendingMessages.length} mensagens seguidas antes de você responder. Responda tudo de forma natural e coesa em uma única mensagem, como se fosse uma conversa fluida. Não numere as respostas nem mencione que eram várias mensagens.`,
+            content: `ATENÇÃO: O cliente enviou ${pendingMessages.length} mensagens seguidas. Responda tudo de forma natural e coesa em uma única mensagem.`,
           });
         }
 
-        if (memory) {
-          chatMessages.push({
-            role: "system",
-            content: `Contexto do cliente: Nome: ${memory.customer_name || "desconhecido"}, Idioma: ${memory.preferred_language}, Último sentimento: ${memory.last_sentiment || "neutro"}, Total interações: ${memory.total_interactions}${memory.notes ? `, Notas: ${memory.notes}` : ""}`,
-          });
-        }
-
+        // Adicionar histórico como mensagens alternadas para manter contexto na API
         if (messages) {
-          for (const msg of messages) {
+          for (const msg of messages.slice(0, -1)) {
             chatMessages.push({
               role: msg.direction === "inbound" ? "user" : "assistant",
               content: msg.content || "[mídia]",
             });
           }
         }
+
+        // A última mensagem do usuário inclui o contexto completo + mensagens pendentes
+        chatMessages.push({ role: "user", content: userMessage });
 
         // Call AI
         let responseText = "";

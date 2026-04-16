@@ -888,6 +888,48 @@ const TicketsPage = () => {
           </div>
         </div>
       )}
+      {exportModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-background rounded-xl p-6 w-full max-w-sm shadow-xl border">
+            <h3 className="text-lg font-semibold mb-2">Exportar Conversas</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Selecione o período e baixe todas as conversas em .txt
+            </p>
+
+            <div className="space-y-2 mb-6">
+              {periodOptions.map(option => (
+                <label key={option.value} className="flex items-center gap-3 p-3 rounded-lg border cursor-pointer hover:bg-muted transition-colors">
+                  <input
+                    type="radio"
+                    name="period"
+                    value={option.value}
+                    checked={exportPeriod === option.value}
+                    onChange={() => setExportPeriod(option.value)}
+                    className="accent-green-500"
+                  />
+                  <span className="text-sm">{option.label}</span>
+                </label>
+              ))}
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setExportModal(false)}
+                className="flex-1 px-4 py-2 text-sm rounded-lg border hover:bg-muted"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleExport}
+                disabled={exporting}
+                className="flex-1 px-4 py-2 text-sm rounded-lg bg-green-500 text-white hover:bg-green-600 disabled:opacity-50"
+              >
+                {exporting ? 'Exportando...' : '⬇️ Exportar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Bot, Search, Phone, CheckCircle, RefreshCw, Globe, StickyNote, MessageSquare, CheckCheck, Loader2, Clock, TrendingUp, Headphones, HelpCircle, ShoppingBag, Package, ExternalLink, Copy } from "lucide-react";
+import { Send, Bot, Search, Phone, CheckCircle, RefreshCw, Globe, StickyNote, MessageSquare, CheckCheck, Loader2, Clock, TrendingUp, Headphones, HelpCircle, ShoppingBag, Package, ExternalLink, Copy, Download } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { format, isToday, isSameDay } from "date-fns";
@@ -80,7 +80,125 @@ const TicketsPage = () => {
   const [shopifyCustomer, setShopifyCustomer] = useState<{ name: string } | null>(null);
   const [shopifyLoading, setShopifyLoading] = useState(false);
   const [shopifyError, setShopifyError] = useState<string | null>(null);
+  const [exportModal, setExportModal] = useState(false);
+  const [exportPeriod, setExportPeriod] = useState('today');
+  const [exporting, setExporting] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const periodOptions = [
+    { value: 'today', label: 'Hoje' },
+    { value: '2', label: 'Últimos 2 dias' },
+    { value: '5', label: 'Últimos 5 dias' },
+    { value: '7', label: 'Últimos 7 dias' },
+    { value: '15', label: 'Últimos 15 dias' },
+    { value: '30', label: 'Últimos 30 dias' },
+    { value: 'all', label: 'Todo o período' },
+  ];
+
+  const handleExport = async () => {
+    if (!currentStore) return;
+    setExporting(true);
+    try {
+      let startDate: string | null = null;
+      if (exportPeriod === 'today') {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        startDate = today.toISOString();
+      } else if (exportPeriod !== 'all') {
+        const days = parseInt(exportPeriod);
+        startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+      }
+
+      let ticketsQuery = supabase
+        .from('tickets')
+        .select('id, customer_name, customer_phone, status, sentiment, created_at, last_message_at')
+        .eq('store_id', currentStore.id)
+        .order('last_message_at', { ascending: false });
+
+      if (startDate) {
+        ticketsQuery = ticketsQuery.gte('last_message_at', startDate);
+      }
+
+      const { data: ticketsData } = await ticketsQuery;
+      if (!ticketsData || ticketsData.length === 0) {
+        toast.error('Nenhuma conversa encontrada no período selecionado.');
+        return;
+      }
+
+      const lines: string[] = [];
+      const periodLabel = periodOptions.find(p => p.value === exportPeriod)?.label || '';
+
+      lines.push(`SUPORTFY — EXPORT DE CONVERSAS`);
+      lines.push(`Loja: ${currentStore?.name || 'Adorisse'}`);
+      lines.push(`Período: ${periodLabel}`);
+      lines.push(`Exportado em: ${new Date().toLocaleString('pt-BR')}`);
+      lines.push(`Total de conversas: ${ticketsData.length}`);
+      lines.push('');
+
+      for (const ticket of ticketsData) {
+        const { data: msgs } = await supabase
+          .from('messages')
+          .select('content, direction, message_type, created_at')
+          .eq('ticket_id', ticket.id)
+          .order('created_at', { ascending: true });
+
+        lines.push('═'.repeat(60));
+        lines.push(`Cliente: ${ticket.customer_name || 'Sem nome'}`);
+        lines.push(`Telefone: ${ticket.customer_phone}`);
+        lines.push(`Status: ${ticket.status === 'open' ? 'Aberto' : 'Fechado'}`);
+        lines.push(`Sentimento: ${ticket.sentiment || 'neutro'}`);
+        lines.push(`Início: ${ticket.created_at ? new Date(ticket.created_at).toLocaleString('pt-BR') : '-'}`);
+        lines.push(`Última msg: ${ticket.last_message_at ? new Date(ticket.last_message_at).toLocaleString('pt-BR') : '-'}`);
+        lines.push(`Total de mensagens: ${msgs?.length || 0}`);
+        lines.push('─'.repeat(60));
+
+        let lastDate = '';
+        for (const msg of msgs || []) {
+          if (!msg.created_at) continue;
+          const msgDate = new Date(msg.created_at);
+          const dateStr = msgDate.toLocaleDateString('pt-BR');
+          const timeStr = msgDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+          if (dateStr !== lastDate) {
+            lines.push(`── ${dateStr} ──`);
+            lastDate = dateStr;
+          }
+
+          const author = msg.direction === 'outbound' ? '🤖 Sophia' : `👤 ${ticket.customer_name || 'Cliente'}`;
+          const content =
+            msg.message_type === 'image' ? `[📷 Imagem${msg.content ? ': ' + msg.content : ''}]` :
+            msg.message_type === 'audio' ? `[🎤 Áudio${msg.content ? ': ' + msg.content : ''}]` :
+            msg.message_type === 'video' ? '[🎥 Vídeo]' :
+            msg.message_type === 'document' ? '[📄 Documento]' :
+            msg.content || '';
+
+          lines.push(`[${timeStr}] ${author}`);
+          lines.push(content);
+          lines.push('');
+        }
+      }
+
+      lines.push('═'.repeat(60));
+      lines.push(`FIM DO EXPORT — ${ticketsData.length} conversa(s)`);
+
+      const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `conversas_${periodLabel.toLowerCase().replace(/ /g, '_')}_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      toast.success(`${ticketsData.length} conversa(s) exportada(s) com sucesso!`);
+      setExportModal(false);
+    } catch (e) {
+      toast.error('Erro ao exportar conversas');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   // Copiar conversa completa como texto formatado
   const copyChat = useCallback(async () => {
@@ -394,6 +512,13 @@ const TicketsPage = () => {
             className="w-full text-xs px-3 py-1 rounded border border-dashed border-green-500 text-green-600 hover:bg-green-50"
           >
             + Simular mensagem
+          </button>
+          <button
+            onClick={() => setExportModal(true)}
+            className="w-full flex items-center justify-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border hover:bg-muted transition-colors"
+          >
+            <Download className="w-3.5 h-3.5" />
+            Exportar
           </button>
         </div>
         <ScrollArea className="flex-1 min-h-0">
@@ -760,6 +885,48 @@ const TicketsPage = () => {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+      {exportModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-background rounded-xl p-6 w-full max-w-sm shadow-xl border">
+            <h3 className="text-lg font-semibold mb-2">Exportar Conversas</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Selecione o período e baixe todas as conversas em .txt
+            </p>
+
+            <div className="space-y-2 mb-6">
+              {periodOptions.map(option => (
+                <label key={option.value} className="flex items-center gap-3 p-3 rounded-lg border cursor-pointer hover:bg-muted transition-colors">
+                  <input
+                    type="radio"
+                    name="period"
+                    value={option.value}
+                    checked={exportPeriod === option.value}
+                    onChange={() => setExportPeriod(option.value)}
+                    className="accent-green-500"
+                  />
+                  <span className="text-sm">{option.label}</span>
+                </label>
+              ))}
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setExportModal(false)}
+                className="flex-1 px-4 py-2 text-sm rounded-lg border hover:bg-muted"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleExport}
+                disabled={exporting}
+                className="flex-1 px-4 py-2 text-sm rounded-lg bg-green-500 text-white hover:bg-green-600 disabled:opacity-50"
+              >
+                {exporting ? 'Exportando...' : '⬇️ Exportar'}
+              </button>
+            </div>
           </div>
         </div>
       )}

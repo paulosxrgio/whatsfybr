@@ -604,6 +604,8 @@ ${consolidatedInput}
 
 ${orderContext}
 
+${wrongStoreContext ? `══════════════════════════════\n${wrongStoreContext}\n══════════════════════════════` : ''}
+
 ${memoryContext}
 ${sentimentInstruction}
 `.trim();

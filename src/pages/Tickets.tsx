@@ -513,6 +513,13 @@ const TicketsPage = () => {
           >
             + Simular mensagem
           </button>
+          <button
+            onClick={() => setExportModal(true)}
+            className="w-full flex items-center justify-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border hover:bg-muted transition-colors"
+          >
+            <Download className="w-3.5 h-3.5" />
+            Exportar
+          </button>
         </div>
         <ScrollArea className="flex-1 min-h-0">
           {filteredTickets.map((ticket) => (

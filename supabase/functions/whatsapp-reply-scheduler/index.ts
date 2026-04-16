@@ -456,7 +456,31 @@ FLUXO CORRETO quando cliente quer comprar com prazo:
 2ª mensagem — responda a dúvida do prazo/frete com SIM ou NÃO
 3ª mensagem — envie o link ou próxima ação concreta
 
-Nunca fique em loop de "vou verificar". Se não sabe a resposta, diga que não sabe e ofereça alternativa.`;
+Nunca fique em loop de "vou verificar". Se não sabe a resposta, diga que não sabe e ofereça alternativa.
+
+━━━━━━━━━━━━━━━━━━━━━━
+PEDIDOS DE OUTRAS LOJAS
+━━━━━━━━━━━━━━━━━━━━━━
+
+Se o cliente mencionar número de pedido que NÃO começa com os prefixos da loja,
+ou se a busca Shopify não retornar nenhum pedido, responda IMEDIATAMENTE:
+
+"Oi [Nome]! Não encontrei esse pedido aqui na ${storeName}.
+Parece que sua compra foi feita em outra loja.
+Para resolver, entre em contato com a loja onde o pagamento foi concluído,
+pelo email de confirmação que você recebeu na compra.
+Se tiver pedidos feitos aqui na ${storeName}, é só me chamar! 😊
+Abraços, Sophia"
+
+NUNCA tente "verificar" um pedido que não existe no sistema.
+NUNCA diga "vou verificar" sem ter os dados reais do pedido no contexto.
+NUNCA invente status, rastreamento ou informações sobre pedidos não encontrados.
+
+Sinais de que o pedido é de outra loja:
+- Número de pedido com formato diferente (ex: #27732 sem prefixo da loja)
+- Cliente menciona nomes como: Patroa, Maria Alice, Shopee, Mercado Livre, Magazine Luiza, AliExpress
+- Pedido não aparece na busca Shopify
+- Cliente menciona que encontrou o produto "na internet" em outro lugar`;
 
         const systemPrompt = `${baseSystemPrompt}\n\n${modePrompt}${settings.ai_system_prompt ? `\n\n━━━━━━━━━━━━━━━━━━━━━━\nREGRAS ESPECÍFICAS DESTA LOJA\n━━━━━━━━━━━━━━━━━━━━━━\n\n${settings.ai_system_prompt}` : ""}`;
 
@@ -542,6 +566,14 @@ ${formattedHistory}`;
           console.error("Erro ao buscar pedidos Shopify:", e);
         }
 
+        // Detectar se o cliente mencionou pedido de outra loja
+        const mentionedOrderNumber = consolidatedInput.match(/#?\d{4,}/)?.[0];
+        const foundInShopify = orderContext !== "Nenhum pedido Shopify encontrado para este cliente.";
+
+        const wrongStoreContext = mentionedOrderNumber && !foundInShopify
+          ? `ATENÇÃO CRÍTICA: O cliente mencionou o pedido ${mentionedOrderNumber} mas esse pedido NÃO existe na loja ${storeName} no Shopify. Provavelmente é de outra loja. Informe isso claramente e oriente o cliente a contatar a loja correta. NÃO invente informações sobre esse pedido.`
+          : '';
+
         // Construir contexto
         const memoryContext = memory
           ? `DADOS DO CLIENTE: Nome: ${memory.customer_name || "desconhecido"}, Idioma: ${memory.preferred_language}, Último sentimento: ${memory.last_sentiment || "neutro"}, Total interações: ${memory.total_interactions}${memory.notes ? `, Notas: ${memory.notes}` : ""}`
@@ -571,6 +603,8 @@ ${consolidatedInput}
 ══════════════════════════════
 
 ${orderContext}
+
+${wrongStoreContext ? `══════════════════════════════\n${wrongStoreContext}\n══════════════════════════════` : ''}
 
 ${memoryContext}
 ${sentimentInstruction}

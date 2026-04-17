@@ -45,7 +45,7 @@ serve(async (req) => {
 
         const { data: acctSettings } = await supabase.from("account_settings").select("*").eq("user_id", storeData.user_id).maybeSingle();
         const aiProvider = acctSettings?.ai_provider || "openai";
-        const aiModel = acctSettings?.ai_model || "gpt-4o";
+        const aiModel = acctSettings?.ai_model || "gpt-4o-mini";
         const openaiApiKey = acctSettings?.openai_api_key || "";
         const anthropicApiKey = acctSettings?.anthropic_api_key || "";
 
@@ -82,16 +82,16 @@ serve(async (req) => {
 
         console.log(`Processando ${pendingMessages?.length || 0} mensagens consolidadas para ticket ${item.ticket_id}`);
 
-        // Buscar últimas 20 mensagens do ticket para contexto completo
+        // Buscar últimas 10 mensagens do ticket para contexto (otimização de custo)
         const { data: messageHistory } = await supabase
           .from("messages")
           .select("content, direction, message_type, created_at")
           .eq("ticket_id", item.ticket_id)
           .order("created_at", { ascending: true })
-          .limit(20);
+          .limit(10);
 
-        // Formatar histórico de forma clara para a IA
-        const formattedHistory = messageHistory
+        // Formatar histórico de forma clara para a IA, truncando se muito longo
+        const rawFormattedHistory = messageHistory
           ?.map(m => {
             const time = m.created_at ? new Date(m.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
             const author = m.direction === 'outbound' ? 'SOPHIA' : 'CLIENTE';
@@ -103,6 +103,7 @@ serve(async (req) => {
             return `[${time}] ${author}: ${content}`;
           })
           .join('\n') || '';
+        const formattedHistory = rawFormattedHistory.slice(-3000); // máx 3000 chars
 
         const { data: memory } = await supabase
           .from("customer_memory")
@@ -141,6 +142,7 @@ Responda SOMENTE uma palavra: support, sales ou unclear`;
                   instructions: "Responda SOMENTE uma palavra: support, sales ou unclear",
                   input: intentDetectionPrompt,
                   store: false,
+                  max_output_tokens: 10,
                 }),
                 signal: controller.signal,
               });
@@ -509,7 +511,7 @@ ${formattedHistory}`;
               const fRes = await fetch("https://api.openai.com/v1/responses", {
                 method: "POST",
                 headers: { "Content-Type": "application/json", "Authorization": `Bearer ${openaiApiKey}` },
-                body: JSON.stringify({ model: aiModel, instructions: "Retorne SOMENTE JSON válido, sem markdown.", input: factExtractionPrompt, store: false }),
+                body: JSON.stringify({ model: aiModel, instructions: "Retorne SOMENTE JSON válido, sem markdown.", input: factExtractionPrompt, store: false, max_output_tokens: 100 }),
               });
               const fData = await fRes.json();
               factsRaw = fData.output_text || fData.output?.[0]?.content?.[0]?.text || "";
@@ -517,7 +519,7 @@ ${formattedHistory}`;
               const fRes = await fetch("https://api.anthropic.com/v1/messages", {
                 method: "POST",
                 headers: { "Content-Type": "application/json", "x-api-key": anthropicApiKey, "anthropic-version": "2023-06-01" },
-                body: JSON.stringify({ model: aiModel, max_tokens: 200, messages: [{ role: "user", content: factExtractionPrompt }] }),
+                body: JSON.stringify({ model: aiModel, max_tokens: 100, messages: [{ role: "user", content: factExtractionPrompt }] }),
               });
               const fData = await fRes.json();
               factsRaw = fData.content?.[0]?.text || "";
@@ -665,6 +667,7 @@ ${sentimentInstruction}
                 instructions,
                 input: inputMessages,
                 store: false,
+                max_output_tokens: 400,
               }),
               signal: controller.signal,
             });
@@ -691,7 +694,7 @@ ${sentimentInstruction}
             },
             body: JSON.stringify({
               model: aiModel,
-              max_tokens: 500,
+              max_tokens: 400,
               system: systemMsg,
               messages: userMsgs,
             }),

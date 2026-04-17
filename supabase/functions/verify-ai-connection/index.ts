@@ -55,9 +55,10 @@ serve(async (req) => {
             "Authorization": `Bearer ${api_key}`,
           },
           body: JSON.stringify({
-            model: model || "gpt-4o",
+            model: model || "gpt-4o-mini",
             input: "Say ok",
             store: false,
+            max_output_tokens: 16,
           }),
           signal: controller.signal,
         });

@@ -142,7 +142,7 @@ Responda SOMENTE uma palavra: support, sales ou unclear`;
                   instructions: "Responda SOMENTE uma palavra: support, sales ou unclear",
                   input: intentDetectionPrompt,
                   store: false,
-                  max_output_tokens: 10,
+                  max_output_tokens: 16,
                 }),
                 signal: controller.signal,
               });

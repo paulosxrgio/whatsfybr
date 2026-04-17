@@ -99,7 +99,7 @@ serve(async (req) => {
     // Extract tracking info from fulfillments
     const fulfillment = order.fulfillments?.[0] || {};
     const trackingCode = fulfillment.tracking_number || null;
-    const trackingUrl = fulfillment.tracking_url || (trackingCode ? `https://www.trackingmore.com/en/track?number=${trackingCode}` : null);
+    const trackingUrl = trackingCode ? `https://adorisse.com.br/apps/parcelpanel?nums=${trackingCode}` : null;
     const carrier = fulfillment.tracking_company || null;
 
     // Build message

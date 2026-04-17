@@ -348,8 +348,8 @@ Bom: "Que situação chata, [Nome]. Me deixa ver o que aconteceu com o seu pedid
 RASTREAMENTO
 ━━━━━━━━━━━━━━━━━━━━━━
 
-Use sempre o TrackingMore:
-https://www.trackingmore.com/en/track?number=CODIGO
+Use SEMPRE este formato (link da própria loja, NUNCA trackingmore):
+https://adorisse.com.br/apps/parcelpanel?nums=CODIGO
 
 Coloque o link em linha separada.
 Explique que o produto vem diretamente do fabricante — atualizações acontecem por checkpoints e podem parecer lentas entre eles, mas o pedido está em movimento.
@@ -560,8 +560,8 @@ ${formattedHistory}`;
                 `Status entrega: ${o.status === 'fulfilled' ? 'Enviado' : o.status === 'partial' ? 'Parcialmente enviado' : 'Aguardando envio'}\n` +
                 `Itens: ${(o.items || []).map((i: any) => `${i.title}${i.variant_title ? ' (' + i.variant_title + ')' : ''} x${i.quantity}`).join(', ')}\n` +
                 `Total: ${o.currency} ${o.total_price}\n` +
-                `${o.tracking_number ? `Rastreio: ${o.tracking_number}` : 'Sem rastreio ainda'}\n` +
-                `${o.tracking_url ? `Link rastreio: ${o.tracking_url}` : ''}\n` +
+                `${o.tracking_number ? `Código de rastreio: ${o.tracking_number}` : 'Sem código de rastreio ainda'}\n` +
+                `${o.tracking_number ? `Link de rastreamento: https://adorisse.com.br/apps/parcelpanel?nums=${o.tracking_number}` : ''}\n` +
                 `Data: ${new Date(o.created_at).toLocaleDateString('pt-BR')}`
               ).join('\n---\n')}\n\nUSE ESSES DADOS para responder perguntas sobre pedidos. Mencione o número do pedido e status diretamente.`;
             }

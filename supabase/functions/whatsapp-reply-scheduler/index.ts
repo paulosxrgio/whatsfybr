@@ -23,6 +23,8 @@ serve(async (req) => {
       .order("scheduled_for")
       .limit(10);
 
+    console.log(`[SCHEDULER] Processando ${queue?.length || 0} itens da fila`);
+
     if (!queue || queue.length === 0) {
       return new Response(JSON.stringify({ processed: 0 }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -554,9 +556,9 @@ ${formattedHistory}`;
             const orders = ordersData?.orders || [];
             if (orders.length > 0) {
               orderContext = `PEDIDOS SHOPIFY DO CLIENTE:\n${orders.map((o: any) =>
-                `Pedido ${o.order_number} — ${o.financial_status === 'paid' ? 'PAGO' : o.financial_status}\n` +
-                `Status entrega: ${o.fulfillment_status === 'fulfilled' ? 'Enviado' : o.fulfillment_status === 'partial' ? 'Parcialmente enviado' : 'Aguardando envio'}\n` +
-                `Itens: ${(o.line_items || []).map((i: any) => `${i.title}${i.variant ? ' (' + i.variant + ')' : ''} x${i.quantity}`).join(', ')}\n` +
+                `Pedido ${o.name || o.order_number} — ${o.financial_status === 'paid' ? 'PAGO' : o.financial_status}\n` +
+                `Status entrega: ${o.status === 'fulfilled' ? 'Enviado' : o.status === 'partial' ? 'Parcialmente enviado' : 'Aguardando envio'}\n` +
+                `Itens: ${(o.items || []).map((i: any) => `${i.title}${i.variant_title ? ' (' + i.variant_title + ')' : ''} x${i.quantity}`).join(', ')}\n` +
                 `Total: ${o.currency} ${o.total_price}\n` +
                 `${o.tracking_number ? `Rastreio: ${o.tracking_number}` : 'Sem rastreio ainda'}\n` +
                 `${o.tracking_url ? `Link rastreio: ${o.tracking_url}` : ''}\n` +

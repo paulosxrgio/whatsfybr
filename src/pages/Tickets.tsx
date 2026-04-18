@@ -768,6 +768,11 @@ const TicketsPage = () => {
             <p className="text-sm text-muted-foreground flex items-center justify-center gap-1">
               <Phone className="h-3 w-3" /> {selectedTicket.customer_phone}
             </p>
+            {customerMemory?.customer_email && (
+              <p className="text-sm text-muted-foreground flex items-center justify-center gap-1 mt-1 break-all">
+                <Mail className="h-3 w-3 shrink-0" /> {customerMemory.customer_email}
+              </p>
+            )}
           </div>
 
           <div className="space-y-3 mb-6">

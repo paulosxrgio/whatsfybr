@@ -56,7 +56,18 @@ serve(async (req) => {
           }
         }
 
-        await supabase.from("auto_reply_queue").update({ status: "processing" }).eq("id", item.id);
+        // Lock atômico: marcar como processing SOMENTE se ainda estiver pending
+        const { data: locked, error: lockError } = await supabase
+          .from("auto_reply_queue")
+          .update({ status: "processing" })
+          .eq("id", item.id)
+          .eq("status", "pending")
+          .select("id");
+
+        if (lockError || !locked || locked.length === 0) {
+          console.log(`[SKIP] item ${item.id} já está sendo processado por outro worker`);
+          continue;
+        }
 
         const { data: settings } = await supabase.from("settings").select("*").eq("store_id", item.store_id).single();
         if (!settings) { await supabase.from("auto_reply_queue").update({ status: "failed" }).eq("id", item.id); continue; }

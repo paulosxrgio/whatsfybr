@@ -285,7 +285,7 @@ const TicketsPage = () => {
     if (!currentStore) return;
     let query = supabase
       .from("tickets")
-      .select("*, auto_reply_queue(id, status, message_count)")
+      .select("*, auto_reply_queue(id, status, message_count), requests(id, status)")
       .eq("store_id", currentStore.id)
       .order("last_message_at", { ascending: false });
 
@@ -298,7 +298,9 @@ const TicketsPage = () => {
         ...t,
         hasPendingQueue: t.auto_reply_queue?.some((q: any) => q.status === "pending"),
         pendingMessageCount: t.auto_reply_queue?.find((q: any) => q.status === "pending")?.message_count || 0,
+        hasPendingRequest: t.requests?.some((r: any) => r.status === "pending"),
         auto_reply_queue: undefined,
+        requests: undefined,
       }));
       setTickets(ticketsWithQueue);
     }

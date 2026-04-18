@@ -415,6 +415,48 @@ const TicketsPage = () => {
     fetchOrders();
   }, [selectedTicket, currentStore]);
 
+  // Fetch pending requests for selected ticket
+  useEffect(() => {
+    if (!selectedTicket) {
+      setPendingRequests([]);
+      return;
+    }
+    const fetchRequests = async () => {
+      const { data } = await supabase
+        .from("requests")
+        .select("id, type, order_name, description, details, created_at")
+        .eq("ticket_id", selectedTicket.id)
+        .eq("status", "pending")
+        .order("created_at", { ascending: false });
+      setPendingRequests((data as PendingRequest[]) || []);
+    };
+    fetchRequests();
+
+    const channel = supabase
+      .channel(`requests-${selectedTicket.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "requests", filter: `ticket_id=eq.${selectedTicket.id}` }, () => {
+        fetchRequests();
+        fetchTickets();
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [selectedTicket]);
+
+  const markRequestDone = async (requestId: string) => {
+    const { error } = await supabase
+      .from("requests")
+      .update({ status: "done", updated_at: new Date().toISOString() })
+      .eq("id", requestId);
+    if (error) {
+      toast.error("Erro ao marcar como feito");
+      return;
+    }
+    setPendingRequests((prev) => prev.filter((r) => r.id !== requestId));
+    fetchTickets();
+    toast.success("Solicitação marcada como feita!");
+  };
+
   const handleSend = async () => {
     if (!newMessage.trim() || !selectedTicket || !currentStore) return;
     setSending(true);

@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Bot, Search, Phone, Mail, CheckCircle, RefreshCw, Globe, StickyNote, MessageSquare, CheckCheck, Loader2, Clock, TrendingUp, Headphones, HelpCircle, ShoppingBag, Package, ExternalLink, Copy, Download } from "lucide-react";
+import { Send, Bot, Search, Phone, Mail, CheckCircle, RefreshCw, Globe, StickyNote, MessageSquare, CheckCheck, Loader2, Clock, TrendingUp, Headphones, HelpCircle, ShoppingBag, Package, ExternalLink, Copy, Download, AlertTriangle, ClipboardList, Check } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { format, isToday, isSameDay } from "date-fns";
@@ -23,6 +23,24 @@ type Ticket = {
   intent?: string | null;
   hasPendingQueue?: boolean;
   pendingMessageCount?: number;
+  hasPendingRequest?: boolean;
+};
+
+type PendingRequest = {
+  id: string;
+  type: string | null;
+  order_name: string | null;
+  description: string | null;
+  details: any;
+  created_at: string | null;
+};
+
+const requestTypeLabel: Record<string, string> = {
+  color_change: "Trocar cor",
+  size_change: "Trocar tamanho",
+  address_update: "Alterar endereço",
+  cancel: "Cancelar pedido",
+  refund: "Reembolso",
 };
 
 type Message = {

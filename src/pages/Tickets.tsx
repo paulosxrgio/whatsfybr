@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Bot, Search, Phone, Mail, CheckCircle, RefreshCw, Globe, StickyNote, MessageSquare, CheckCheck, Loader2, Clock, TrendingUp, Headphones, HelpCircle, ShoppingBag, Package, ExternalLink, Copy, Download } from "lucide-react";
+import { Send, Bot, Search, Phone, Mail, CheckCircle, RefreshCw, Globe, StickyNote, MessageSquare, CheckCheck, Loader2, Clock, TrendingUp, Headphones, HelpCircle, ShoppingBag, Package, ExternalLink, Copy, Download, AlertTriangle, ClipboardList, Check } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { format, isToday, isSameDay } from "date-fns";
@@ -23,6 +23,24 @@ type Ticket = {
   intent?: string | null;
   hasPendingQueue?: boolean;
   pendingMessageCount?: number;
+  hasPendingRequest?: boolean;
+};
+
+type PendingRequest = {
+  id: string;
+  type: string | null;
+  order_name: string | null;
+  description: string | null;
+  details: any;
+  created_at: string | null;
+};
+
+const requestTypeLabel: Record<string, string> = {
+  color_change: "Trocar cor",
+  size_change: "Trocar tamanho",
+  address_update: "Alterar endereço",
+  cancel: "Cancelar pedido",
+  refund: "Reembolso",
 };
 
 type Message = {
@@ -82,6 +100,7 @@ const TicketsPage = () => {
   const [shopifyLoading, setShopifyLoading] = useState(false);
   const [shopifyError, setShopifyError] = useState<string | null>(null);
   const [shopifyFoundByEmail, setShopifyFoundByEmail] = useState(false);
+  const [pendingRequests, setPendingRequests] = useState<PendingRequest[]>([]);
   const [exportModal, setExportModal] = useState(false);
   const [exportPeriod, setExportPeriod] = useState('today');
   const [exporting, setExporting] = useState(false);
@@ -266,7 +285,7 @@ const TicketsPage = () => {
     if (!currentStore) return;
     let query = supabase
       .from("tickets")
-      .select("*, auto_reply_queue(id, status, message_count)")
+      .select("*, auto_reply_queue(id, status, message_count), requests(id, status)")
       .eq("store_id", currentStore.id)
       .order("last_message_at", { ascending: false });
 
@@ -279,7 +298,9 @@ const TicketsPage = () => {
         ...t,
         hasPendingQueue: t.auto_reply_queue?.some((q: any) => q.status === "pending"),
         pendingMessageCount: t.auto_reply_queue?.find((q: any) => q.status === "pending")?.message_count || 0,
+        hasPendingRequest: t.requests?.some((r: any) => r.status === "pending"),
         auto_reply_queue: undefined,
+        requests: undefined,
       }));
       setTickets(ticketsWithQueue);
     }
@@ -393,6 +414,48 @@ const TicketsPage = () => {
     };
     fetchOrders();
   }, [selectedTicket, currentStore]);
+
+  // Fetch pending requests for selected ticket
+  useEffect(() => {
+    if (!selectedTicket) {
+      setPendingRequests([]);
+      return;
+    }
+    const fetchRequests = async () => {
+      const { data } = await supabase
+        .from("requests")
+        .select("id, type, order_name, description, details, created_at")
+        .eq("ticket_id", selectedTicket.id)
+        .eq("status", "pending")
+        .order("created_at", { ascending: false });
+      setPendingRequests((data as PendingRequest[]) || []);
+    };
+    fetchRequests();
+
+    const channel = supabase
+      .channel(`requests-${selectedTicket.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "requests", filter: `ticket_id=eq.${selectedTicket.id}` }, () => {
+        fetchRequests();
+        fetchTickets();
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [selectedTicket]);
+
+  const markRequestDone = async (requestId: string) => {
+    const { error } = await supabase
+      .from("requests")
+      .update({ status: "done", updated_at: new Date().toISOString() })
+      .eq("id", requestId);
+    if (error) {
+      toast.error("Erro ao marcar como feito");
+      return;
+    }
+    setPendingRequests((prev) => prev.filter((r) => r.id !== requestId));
+    fetchTickets();
+    toast.success("Solicitação marcada como feita!");
+  };
 
   const handleSend = async () => {
     if (!newMessage.trim() || !selectedTicket || !currentStore) return;
@@ -550,6 +613,12 @@ const TicketsPage = () => {
                     {ticket.last_message_at && format(new Date(ticket.last_message_at), "HH:mm")}
                   </span>
                 </div>
+                {ticket.hasPendingRequest && (
+                  <div className="mt-1 flex items-center gap-1 text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md w-fit">
+                    <AlertTriangle className="h-3 w-3" />
+                    Solicitação pendente
+                  </div>
+                )}
                 <div className="flex items-center justify-between mt-0.5">
                   <span className="text-xs text-muted-foreground truncate">
                     {ticket.customer_phone}
@@ -826,6 +895,54 @@ const TicketsPage = () => {
               <p className="text-xs text-muted-foreground">Nenhuma memória registrada ainda.</p>
             )}
           </div>
+
+          {/* Pending Requests */}
+          {pendingRequests.length > 0 && (
+            <div className="border-t pt-4 space-y-2">
+              <h4 className="font-semibold text-sm flex items-center gap-1.5 text-amber-700">
+                <AlertTriangle className="h-4 w-4" /> Solicitações Pendentes
+              </h4>
+              {pendingRequests.map((req) => (
+                <div key={req.id} className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 space-y-1.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <ClipboardList className="h-3.5 w-3.5 text-amber-700 shrink-0" />
+                        <span className="text-xs font-semibold text-amber-900">
+                          {requestTypeLabel[req.type || ""] || req.type}
+                        </span>
+                      </div>
+                      {req.order_name && (
+                        <p className="text-[11px] text-amber-800 mt-0.5">Pedido {req.order_name}</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => markRequestDone(req.id)}
+                      title="Marcar como feito"
+                      className="shrink-0 flex items-center gap-1 text-[10px] bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded-md transition-colors"
+                    >
+                      <Check className="h-3 w-3" /> Feito
+                    </button>
+                  </div>
+                  {req.details?.requested_color && (
+                    <p className="text-[11px] text-amber-900"><b>Nova cor:</b> {req.details.requested_color}</p>
+                  )}
+                  {req.details?.requested_size && (
+                    <p className="text-[11px] text-amber-900"><b>Novo tamanho:</b> {req.details.requested_size}</p>
+                  )}
+                  {req.details?.new_address && (
+                    <p className="text-[11px] text-amber-900 break-words"><b>Endereço:</b> {req.details.new_address}</p>
+                  )}
+                  {req.description && !req.details?.requested_color && !req.details?.requested_size && !req.details?.new_address && (
+                    <p className="text-[11px] text-amber-900 break-words italic">"{req.description}"</p>
+                  )}
+                  <p className="text-[10px] text-amber-700">
+                    {req.created_at && format(new Date(req.created_at), "dd/MM HH:mm")}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Shopify Orders */}
           <div className="border-t pt-4 space-y-3">

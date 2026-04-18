@@ -527,7 +527,47 @@ Se houver "INSTRUÇÃO ESPECIAL" no contexto pedindo o email do cliente, peça a
 "Para localizar seu pedido, pode me informar o email que você usou na compra?"
 
 NUNCA diga "sua compra foi feita em outra loja" na primeira tentativa.
-Só conclua que é de outra loja quando o sistema confirmar (via "ATENÇÃO: ...não foi localizado nem por telefone nem pelo email salvo") que nem telefone nem email retornaram o pedido.`;
+Só conclua que é de outra loja quando o sistema confirmar (via "ATENÇÃO: ...não foi localizado nem por telefone nem pelo email salvo") que nem telefone nem email retornaram o pedido.
+
+━━━━━━━━━━━━━━━━━━━━━━
+SOLICITAÇÕES DE TROCA, ENDEREÇO E TAMANHO
+━━━━━━━━━━━━━━━━━━━━━━
+
+Quando o cliente pedir para TROCAR COR, TAMANHO ou ALTERAR ENDEREÇO antes do envio:
+1. Confirme que é possível pois o pedido ainda não foi enviado
+2. Peça os detalhes da alteração (qual cor/tamanho/endereço novo)
+3. Diga: "Anotei sua solicitação! Vou encaminhar para nossa equipe fazer a alteração — normalmente resolvemos em até 24 horas. Assim que confirmarmos, te aviso por aqui. 💛"
+4. NÃO diga "já fiz a alteração" ou "já processei" — você registra a solicitação mas a alteração é feita pela equipe
+
+Se o pedido JÁ foi enviado:
+- Para cor/tamanho: "Como o pedido já foi despachado, a troca poderá ser feita ao receber. Assim que chegar, me avise e te explico o processo de troca!"
+
+━━━━━━━━━━━━━━━━━━━━━━
+PERGUNTAS SEM PEDIDO
+━━━━━━━━━━━━━━━━━━━━━━
+
+Se o cliente NÃO comprou ainda e quer saber prazo, produto, tamanho, etc:
+- NUNCA peça email — ele não tem pedido ainda
+- Responda diretamente: prazo = 8 a 12 dias úteis
+- Seja consultiva e ajude a fechar a venda
+
+━━━━━━━━━━━━━━━━━━━━━━
+SOBRE SER IA OU HUMANA
+━━━━━━━━━━━━━━━━━━━━━━
+
+Se o cliente perguntar "você é IA ou humana?":
+Responda com honestidade e leveza:
+"Sou a Sophia, assistente virtual da ${storeName} 🤖 Mas pode falar comigo como se fosse uma pessoa — estou aqui para resolver tudo mesmo!"
+NUNCA diga "sou uma atendente real" ou "não sou IA"
+
+━━━━━━━━━━━━━━━━━━━━━━
+NÃO PEDIR EMAIL DESNECESSARIAMENTE
+━━━━━━━━━━━━━━━━━━━━━━
+
+Só pedir email quando:
+- Cliente mencionou um pedido específico E não foi encontrado pelo telefone
+- NÃO pedir email quando: cliente está só perguntando sobre produto/prazo/preço/troca em geral
+- NÃO pedir email quando: já encontrou o pedido anteriormente na mesma conversa`;
 
         const systemPrompt = `${baseSystemPrompt}\n\n${modePrompt}${settings.ai_system_prompt ? `\n\n━━━━━━━━━━━━━━━━━━━━━━\nREGRAS ESPECÍFICAS DESTA LOJA\n━━━━━━━━━━━━━━━━━━━━━━\n\n${settings.ai_system_prompt}` : ""}`;
 
@@ -880,6 +920,77 @@ ${sentimentInstruction}
           direction: "outbound",
           message_type: "text",
         });
+
+        // ── Detectar solicitação pendente (troca, endereço, tamanho, cancel, refund) ──
+        try {
+          const actionKeywords: Record<string, string[]> = {
+            color_change: ['trocar a cor', 'mudar a cor', 'alterar a cor', 'cor diferente', 'outra cor'],
+            size_change: ['trocar o tamanho', 'mudar o tamanho', 'alterar o tamanho', 'tamanho errado', 'outro tamanho'],
+            address_update: ['alterar endereço', 'atualizar endereço', 'mudar endereço', 'adicionar número', 'complemento', 'endereço errado', 'novo endereço'],
+            cancel: ['cancelar pedido', 'cancelamento', 'quero cancelar'],
+            refund: ['reembolso', 'estorno', 'devolver o dinheiro', 'quero meu dinheiro de volta'],
+          };
+
+          const lastClientMessages = (messageHistory || [])
+            .filter((m: any) => m.direction === 'inbound')
+            .slice(-3)
+            .map((m: any) => (m.content || '').toLowerCase())
+            .join(' ');
+
+          let detectedAction: string | null = null;
+          for (const [action, keywords] of Object.entries(actionKeywords)) {
+            if (keywords.some(kw => lastClientMessages.includes(kw))) {
+              detectedAction = action;
+              break;
+            }
+          }
+
+          if (detectedAction && orders.length > 0) {
+            const order: any = orders[0];
+
+            // Evitar duplicar: já existe request pending do mesmo tipo p/ esse pedido?
+            const { data: existing } = await supabase
+              .from('requests')
+              .select('id')
+              .eq('ticket_id', item.ticket_id)
+              .eq('type', detectedAction)
+              .eq('status', 'pending')
+              .maybeSingle();
+
+            if (!existing) {
+              const requestDetails: any = { raw_request: lastClientMessages };
+
+              if (detectedAction === 'color_change') {
+                const colorMatch = lastClientMessages.match(/(?:para|quero|mudar para|cor)\s+([a-záàãéêíóôõúç\s]+?)(?:\.|,|!|\?|$)/i);
+                if (colorMatch) requestDetails.requested_color = colorMatch[1].trim().slice(0, 50);
+              }
+              if (detectedAction === 'size_change') {
+                const sizeMatch = lastClientMessages.match(/(?:para|tamanho)\s+(pp|p|m|g|gg|xg|xgg|\d{2})\b/i);
+                if (sizeMatch) requestDetails.requested_size = sizeMatch[1].toUpperCase();
+              }
+              if (detectedAction === 'address_update') {
+                requestDetails.new_address = lastClientMessages.slice(0, 500);
+              }
+
+              await supabase.from('requests').insert({
+                store_id: item.store_id,
+                ticket_id: item.ticket_id,
+                customer_phone: ticket.customer_phone,
+                customer_name: ticket.customer_name,
+                type: detectedAction,
+                order_id: String(order.id || order.order_number || ''),
+                order_name: order.name || order.order_number || null,
+                description: lastClientMessages.slice(0, 300),
+                details: requestDetails,
+                status: 'pending',
+              });
+
+              console.log(`[REQUEST CREATED] ${detectedAction} para pedido ${order.name || order.order_number}`);
+            }
+          }
+        } catch (e) {
+          console.error('[REQUEST DETECTION] erro não-fatal:', e);
+        }
 
         // Update ticket
         await supabase.from("tickets").update({

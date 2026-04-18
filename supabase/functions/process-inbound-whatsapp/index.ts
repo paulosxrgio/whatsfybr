@@ -212,14 +212,49 @@ serve(async (req) => {
       console.log("Mensagem salva com sucesso");
     }
 
+    // Detectar email na mensagem (para captura inteligente)
+    const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+    const emailFound = content?.match(emailRegex)?.[0] || null;
+
     // Update customer memory
     await supabase.from("customer_memory").upsert({
       store_id: storeId,
       customer_phone: phone,
       customer_name: senderName || null,
+      ...(emailFound ? { customer_email: emailFound } : {}),
       total_interactions: 1,
       updated_at: new Date().toISOString(),
     }, { onConflict: "store_id,customer_phone" });
+
+    if (emailFound) {
+      console.log(`Email capturado para ${phone}: ${emailFound}`);
+    }
+
+    // ── BLOQUEIO DE SPAM: 8+ mensagens em 10 minutos ──
+    const { count: recentCount } = await supabase
+      .from("messages")
+      .select("id", { count: "exact", head: true })
+      .eq("ticket_id", ticketId)
+      .eq("direction", "inbound")
+      .gte("created_at", new Date(Date.now() - 10 * 60 * 1000).toISOString());
+
+    if ((recentCount || 0) > 8) {
+      console.log(`SPAM detectado para ticket ${ticketId} (${recentCount} msgs em 10min). Fechando ticket.`);
+      await supabase.from("tickets").update({
+        status: "closed",
+        sentiment: "spam",
+      }).eq("id", ticketId);
+
+      // Cancelar qualquer item pendente na fila
+      await supabase.from("auto_reply_queue")
+        .update({ status: "skipped" })
+        .eq("ticket_id", ticketId)
+        .eq("status", "pending");
+
+      return new Response(JSON.stringify({ ok: true, blocked: "spam", count: recentCount }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     // Check if AI is active and enqueue with smart wait
     const { data: settings } = await supabase

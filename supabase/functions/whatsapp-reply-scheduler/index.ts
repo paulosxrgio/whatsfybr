@@ -711,6 +711,7 @@ ${consolidatedInput}
 ══════════════════════════════
 
 ${orderContext}
+${emailContext}
 
 ${wrongStoreContext ? `══════════════════════════════\n${wrongStoreContext}\n══════════════════════════════` : ''}
 

@@ -35,6 +35,27 @@ serve(async (req) => {
 
     for (const item of queue) {
       try {
+        // ── ANTI-LOOP: pular se outbound enviado há menos de 30s ──
+        const { data: lastOutboundCheck } = await supabase
+          .from("messages")
+          .select("created_at")
+          .eq("ticket_id", item.ticket_id)
+          .eq("direction", "outbound")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (lastOutboundCheck) {
+          const secondsSinceLast = (Date.now() - new Date(lastOutboundCheck.created_at).getTime()) / 1000;
+          if (secondsSinceLast < 30) {
+            console.log(`[ANTI-LOOP] Pulando ticket ${item.ticket_id}: última outbound há ${secondsSinceLast.toFixed(1)}s`);
+            await supabase.from("auto_reply_queue").update({
+              scheduled_for: new Date(Date.now() + 30000).toISOString(),
+            }).eq("id", item.id);
+            continue;
+          }
+        }
+
         await supabase.from("auto_reply_queue").update({ status: "processing" }).eq("id", item.id);
 
         const { data: settings } = await supabase.from("settings").select("*").eq("store_id", item.store_id).single();

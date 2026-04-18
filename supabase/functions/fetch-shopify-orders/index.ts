@@ -295,7 +295,7 @@ Deno.serve(async (req) => {
     }));
 
     return new Response(
-      JSON.stringify({ orders: formatted }),
+      JSON.stringify({ orders: formatted, found_by_email: foundByEmail }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {

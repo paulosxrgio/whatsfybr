@@ -1,0 +1,1 @@
+ALTER TABLE public.customer_memory ADD COLUMN IF NOT EXISTS customer_email text;

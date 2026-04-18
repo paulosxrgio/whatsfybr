@@ -35,6 +35,27 @@ serve(async (req) => {
 
     for (const item of queue) {
       try {
+        // ── ANTI-LOOP: pular se outbound enviado há menos de 30s ──
+        const { data: lastOutboundCheck } = await supabase
+          .from("messages")
+          .select("created_at")
+          .eq("ticket_id", item.ticket_id)
+          .eq("direction", "outbound")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (lastOutboundCheck) {
+          const secondsSinceLast = (Date.now() - new Date(lastOutboundCheck.created_at).getTime()) / 1000;
+          if (secondsSinceLast < 30) {
+            console.log(`[ANTI-LOOP] Pulando ticket ${item.ticket_id}: última outbound há ${secondsSinceLast.toFixed(1)}s`);
+            await supabase.from("auto_reply_queue").update({
+              scheduled_for: new Date(Date.now() + 30000).toISOString(),
+            }).eq("id", item.id);
+            continue;
+          }
+        }
+
         await supabase.from("auto_reply_queue").update({ status: "processing" }).eq("id", item.id);
 
         const { data: settings } = await supabase.from("settings").select("*").eq("store_id", item.store_id).single();
@@ -488,28 +509,25 @@ FLUXO CORRETO quando cliente quer comprar com prazo:
 Nunca fique em loop de "vou verificar". Se não sabe a resposta, diga que não sabe e ofereça alternativa.
 
 ━━━━━━━━━━━━━━━━━━━━━━
-PEDIDOS DE OUTRAS LOJAS
+AÇÕES QUE VOCÊ NUNCA PODE FAZER (ANTI-ALUCINAÇÃO)
 ━━━━━━━━━━━━━━━━━━━━━━
 
-Se o cliente mencionar número de pedido que NÃO começa com os prefixos da loja,
-ou se a busca Shopify não retornar nenhum pedido, responda IMEDIATAMENTE:
+- NUNCA diga "não sou robô" ou "sou atendente humana" — você é a Sophia, assistente virtual da ${storeName}.
+- NUNCA prometa "vou ajustar manualmente seu pedido" — você não tem acesso para alterar pedidos.
+- NUNCA prometa "vou te enviar fotos do produto" — você não pode enviar imagens.
+- NUNCA fique em loop dizendo "vou verificar" sem dar uma resposta concreta na mensagem seguinte.
+- NUNCA diga que um pedido é de outra loja sem ter certeza absoluta — primeiro pergunte o email.
+- Se NÃO encontrou o pedido pelo telefone, SEMPRE pergunte o email antes de concluir que é de outra loja.
 
-"Oi [Nome]! Não encontrei esse pedido aqui na ${storeName}.
-Parece que sua compra foi feita em outra loja.
-Para resolver, entre em contato com a loja onde o pagamento foi concluído,
-pelo email de confirmação que você recebeu na compra.
-Se tiver pedidos feitos aqui na ${storeName}, é só me chamar! 😊
-Abraços, Sophia"
+━━━━━━━━━━━━━━━━━━━━━━
+QUANDO NÃO ENCONTRAR O PEDIDO
+━━━━━━━━━━━━━━━━━━━━━━
 
-NUNCA tente "verificar" um pedido que não existe no sistema.
-NUNCA diga "vou verificar" sem ter os dados reais do pedido no contexto.
-NUNCA invente status, rastreamento ou informações sobre pedidos não encontrados.
+Se houver "INSTRUÇÃO ESPECIAL" no contexto pedindo o email do cliente, peça assim:
+"Para localizar seu pedido, pode me informar o email que você usou na compra?"
 
-Sinais de que o pedido é de outra loja:
-- Número de pedido com formato diferente (ex: #27732 sem prefixo da loja)
-- Cliente menciona nomes como: Patroa, Maria Alice, Shopee, Mercado Livre, Magazine Luiza, AliExpress
-- Pedido não aparece na busca Shopify
-- Cliente menciona que encontrou o produto "na internet" em outro lugar`;
+NUNCA diga "sua compra foi feita em outra loja" na primeira tentativa.
+Só conclua que é de outra loja quando o sistema confirmar (via "ATENÇÃO: ...não foi localizado nem por telefone nem pelo email salvo") que nem telefone nem email retornaram o pedido.`;
 
         const systemPrompt = `${baseSystemPrompt}\n\n${modePrompt}${settings.ai_system_prompt ? `\n\n━━━━━━━━━━━━━━━━━━━━━━\nREGRAS ESPECÍFICAS DESTA LOJA\n━━━━━━━━━━━━━━━━━━━━━━\n\n${settings.ai_system_prompt}` : ""}`;
 
@@ -566,11 +584,20 @@ ${formattedHistory}`;
 
         console.log(`Fatos extraídos para ticket ${item.ticket_id}: ${factsContext || 'nenhum'}`);
 
-        // ── Buscar pedidos Shopify para contexto ──
+        // ── Buscar pedidos Shopify (busca inteligente: telefone → email → número de pedido) ──
         let orderContext = "Nenhum pedido Shopify encontrado para este cliente.";
+        let orders: any[] = [];
+        const savedEmail = (memory as any)?.customer_email || null;
+
+        // Extrair possível número de pedido / código de rastreio das últimas mensagens
+        const lastMsgsText = (messageHistory || []).slice(-5).map((m: any) => m.content || "").join(" ");
+        const orderNumMatch = lastMsgsText.match(/#?(\d{3,6})/);
+
         try {
           const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
           const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+          // 1) Busca por telefone (já existente)
           const ordersRes = await fetch(`${supabaseUrl}/functions/v1/fetch-shopify-orders`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "Authorization": `Bearer ${supabaseAnonKey}` },
@@ -578,29 +605,78 @@ ${formattedHistory}`;
           });
           if (ordersRes.ok) {
             const ordersData = await ordersRes.json();
-            const orders = ordersData?.orders || [];
-            if (orders.length > 0) {
-              orderContext = `PEDIDOS SHOPIFY DO CLIENTE:\n${orders.map((o: any) =>
-                `Pedido ${o.name || o.order_number} — ${o.financial_status === 'paid' ? 'PAGO' : o.financial_status}\n` +
-                `Status entrega: ${o.status === 'fulfilled' ? 'Enviado' : o.status === 'partial' ? 'Parcialmente enviado' : 'Aguardando envio'}\n` +
-                `Itens: ${(o.items || []).map((i: any) => `${i.title}${i.variant_title ? ' (' + i.variant_title + ')' : ''} x${i.quantity}`).join(', ')}\n` +
-                `Total: ${o.currency} ${o.total_price}\n` +
-                `${o.tracking_number ? `Código de rastreio: ${o.tracking_number}` : 'Sem código de rastreio ainda'}\n` +
-                `${o.tracking_number ? `Link de rastreamento: https://adorisse.com.br/apps/parcelpanel?nums=${o.tracking_number}` : ''}\n` +
-                `Data: ${new Date(o.created_at).toLocaleDateString('pt-BR')}`
-              ).join('\n---\n')}\n\nUSE ESSES DADOS para responder perguntas sobre pedidos. Mencione o número do pedido e status diretamente.`;
+            orders = ordersData?.orders || [];
+          }
+
+          // 2) Se não achou por telefone, tenta busca direta no Shopify por email/número de pedido
+          if (orders.length === 0 && (savedEmail || orderNumMatch)) {
+            const shopifyUrl = settings.shopify_store_url?.replace(/\/$/, "");
+            const shopifyToken = settings.shopify_client_secret;
+            if (shopifyUrl && shopifyToken) {
+              const shopifyHeaders = { "X-Shopify-Access-Token": shopifyToken, "Content-Type": "application/json" };
+
+              const mapShopifyOrder = (o: any) => ({
+                name: o.name, order_number: o.order_number, financial_status: o.financial_status,
+                status: o.fulfillment_status || "unfulfilled", currency: o.currency, total_price: o.total_price,
+                created_at: o.created_at,
+                items: (o.line_items || []).map((li: any) => ({ title: li.title, variant_title: li.variant_title, quantity: li.quantity })),
+                tracking_number: o.fulfillments?.[0]?.tracking_number || null,
+              });
+
+              if (savedEmail) {
+                try {
+                  const emailRes = await fetch(`${shopifyUrl}/admin/api/2024-01/orders.json?email=${encodeURIComponent(savedEmail)}&status=any&limit=5`, { headers: shopifyHeaders });
+                  if (emailRes.ok) {
+                    const emailData = await emailRes.json();
+                    if (emailData.orders?.length > 0) {
+                      orders = emailData.orders.map(mapShopifyOrder);
+                      console.log(`Pedidos via email salvo (${savedEmail}): ${orders.length}`);
+                    }
+                  }
+                } catch (e) { console.error("Erro busca por email:", e); }
+              }
+
+              if (orders.length === 0 && orderNumMatch) {
+                try {
+                  const numRes = await fetch(`${shopifyUrl}/admin/api/2024-01/orders.json?name=%23${orderNumMatch[1]}&status=any`, { headers: shopifyHeaders });
+                  if (numRes.ok) {
+                    const numData = await numRes.json();
+                    if (numData.orders?.length > 0) {
+                      orders = numData.orders.map(mapShopifyOrder);
+                      console.log(`Pedido via número #${orderNumMatch[1]}: ${orders.length}`);
+                    }
+                  }
+                } catch (e) { console.error("Erro busca por número:", e); }
+              }
             }
+          }
+
+          if (orders.length > 0) {
+            orderContext = `PEDIDOS SHOPIFY DO CLIENTE:\n${orders.map((o: any) =>
+              `Pedido ${o.name || o.order_number} — ${o.financial_status === 'paid' ? 'PAGO' : o.financial_status}\n` +
+              `Status entrega: ${o.status === 'fulfilled' ? 'Enviado' : o.status === 'partial' ? 'Parcialmente enviado' : 'Aguardando envio'}\n` +
+              `Itens: ${(o.items || []).map((i: any) => `${i.title}${i.variant_title ? ' (' + i.variant_title + ')' : ''} x${i.quantity}`).join(', ')}\n` +
+              `Total: ${o.currency} ${o.total_price}\n` +
+              `${o.tracking_number ? `Código de rastreio: ${o.tracking_number}` : 'Sem código de rastreio ainda'}\n` +
+              `${o.tracking_number ? `Link de rastreamento: https://adorisse.com.br/apps/parcelpanel?nums=${o.tracking_number}` : ''}\n` +
+              `Data: ${new Date(o.created_at).toLocaleDateString('pt-BR')}`
+            ).join('\n---\n')}\n\nUSE ESSES DADOS para responder perguntas sobre pedidos. Mencione o número do pedido e status diretamente.`;
           }
         } catch (e) {
           console.error("Erro ao buscar pedidos Shopify:", e);
         }
 
-        // Detectar se o cliente mencionou pedido de outra loja
+        // Detectar pedido mencionado mas não encontrado
         const mentionedOrderNumber = consolidatedInput.match(/#?\d{4,}/)?.[0];
-        const foundInShopify = orderContext !== "Nenhum pedido Shopify encontrado para este cliente.";
+        const foundInShopify = orders.length > 0;
 
-        const wrongStoreContext = mentionedOrderNumber && !foundInShopify
-          ? `ATENÇÃO CRÍTICA: O cliente mencionou o pedido ${mentionedOrderNumber} mas esse pedido NÃO existe na loja ${storeName} no Shopify. Provavelmente é de outra loja. Informe isso claramente e oriente o cliente a contatar a loja correta. NÃO invente informações sobre esse pedido.`
+        // Se não achou nada E não tem email salvo → pedir email antes de concluir que é outra loja
+        const emailContext = !savedEmail && !foundInShopify
+          ? `\n\nINSTRUÇÃO ESPECIAL: Não encontrei pedidos pelo telefone deste cliente E ainda não temos o email dele salvo. Pergunte de forma natural e gentil o email usado na compra para localizar o pedido. Exemplo: "Para localizar seu pedido, pode me informar o email que você usou na compra?". NÃO diga ainda que o pedido é de outra loja.`
+          : '';
+
+        const wrongStoreContext = mentionedOrderNumber && !foundInShopify && savedEmail
+          ? `ATENÇÃO: O cliente mencionou o pedido ${mentionedOrderNumber} mas não foi localizado nem por telefone nem pelo email salvo (${savedEmail}). Provavelmente é de outra loja. Informe com gentileza e oriente a contatar a loja correta. NÃO invente informações.`
           : '';
 
         // Construir contexto
@@ -632,6 +708,7 @@ ${consolidatedInput}
 ══════════════════════════════
 
 ${orderContext}
+${emailContext}
 
 ${wrongStoreContext ? `══════════════════════════════\n${wrongStoreContext}\n══════════════════════════════` : ''}
 

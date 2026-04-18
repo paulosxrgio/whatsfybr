@@ -119,8 +119,9 @@ Deno.serve(async (req) => {
 
     let customerId: string | null = null;
     let customerName = "";
+    let foundByEmail = false;
 
-    // Buscar cliente via GraphQL
+    // Buscar cliente via GraphQL por telefone
     for (const phone of phoneVariants) {
       try {
         const res = await fetch(graphqlEndpoint, {
@@ -160,6 +161,55 @@ Deno.serve(async (req) => {
         }
       } catch (e) {
         console.error(`[Shopify] Erro variante ${phone}:`, e);
+      }
+    }
+
+    // FALLBACK: se não encontrou por telefone, buscar email salvo na customer_memory e tentar por email
+    if (!customerId) {
+      const { data: memory } = await supabase
+        .from("customer_memory")
+        .select("customer_email")
+        .eq("store_id", store_id)
+        .eq("customer_phone", cleanPhone)
+        .maybeSingle();
+
+      const savedEmail = memory?.customer_email;
+
+      if (savedEmail) {
+        console.log(`[Shopify] FALLBACK por email salvo: ${savedEmail}`);
+        try {
+          const res = await fetch(graphqlEndpoint, {
+            method: "POST",
+            headers: gqlHeaders,
+            body: JSON.stringify({
+              query: `{
+                customers(first: 5, query: "email:${savedEmail}") {
+                  edges {
+                    node {
+                      id
+                      firstName
+                      lastName
+                      email
+                    }
+                  }
+                }
+              }`
+            }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const customers = data?.data?.customers?.edges || [];
+            console.log(`[Shopify] Busca por email "${savedEmail}": ${customers.length} resultados`);
+            if (customers.length > 0) {
+              customerId = customers[0].node.id;
+              customerName = `${customers[0].node.firstName || ""} ${customers[0].node.lastName || ""}`.trim();
+              foundByEmail = true;
+              console.log(`[Shopify] ENCONTRADO POR EMAIL: ${customerId} — ${customerName}`);
+            }
+          }
+        } catch (e) {
+          console.error(`[Shopify] Erro busca por email:`, e);
+        }
       }
     }
 

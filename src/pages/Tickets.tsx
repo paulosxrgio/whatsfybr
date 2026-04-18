@@ -358,11 +358,13 @@ const TicketsPage = () => {
       setShopifyOrders([]);
       setShopifyCustomer(null);
       setShopifyError(null);
+      setShopifyFoundByEmail(false);
       return;
     }
     const fetchOrders = async () => {
       setShopifyLoading(true);
       setShopifyError(null);
+      setShopifyFoundByEmail(false);
       try {
         const { data, error } = await supabase.functions.invoke("fetch-shopify-orders", {
           body: { store_id: currentStore.id, customer_phone: selectedTicket.customer_phone, customer_name: selectedTicket.customer_name },
@@ -382,6 +384,7 @@ const TicketsPage = () => {
           }));
           setShopifyOrders(mappedOrders);
           setShopifyCustomer(data?.customer || null);
+          setShopifyFoundByEmail(!!data?.found_by_email);
         }
       } catch {
         setShopifyError("error");

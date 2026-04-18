@@ -201,10 +201,13 @@ export type Database = {
           description: string | null
           details: Json | null
           id: string
+          order_id: string | null
+          order_name: string | null
           status: string | null
           store_id: string
           ticket_id: string
           type: string | null
+          updated_at: string | null
         }
         Insert: {
           created_at?: string | null
@@ -213,10 +216,13 @@ export type Database = {
           description?: string | null
           details?: Json | null
           id?: string
+          order_id?: string | null
+          order_name?: string | null
           status?: string | null
           store_id: string
           ticket_id: string
           type?: string | null
+          updated_at?: string | null
         }
         Update: {
           created_at?: string | null
@@ -225,10 +231,13 @@ export type Database = {
           description?: string | null
           details?: Json | null
           id?: string
+          order_id?: string | null
+          order_name?: string | null
           status?: string | null
           store_id?: string
           ticket_id?: string
           type?: string | null
+          updated_at?: string | null
         }
         Relationships: [
           {

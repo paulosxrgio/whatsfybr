@@ -921,6 +921,77 @@ ${sentimentInstruction}
           message_type: "text",
         });
 
+        // ── Detectar solicitação pendente (troca, endereço, tamanho, cancel, refund) ──
+        try {
+          const actionKeywords: Record<string, string[]> = {
+            color_change: ['trocar a cor', 'mudar a cor', 'alterar a cor', 'cor diferente', 'outra cor'],
+            size_change: ['trocar o tamanho', 'mudar o tamanho', 'alterar o tamanho', 'tamanho errado', 'outro tamanho'],
+            address_update: ['alterar endereço', 'atualizar endereço', 'mudar endereço', 'adicionar número', 'complemento', 'endereço errado', 'novo endereço'],
+            cancel: ['cancelar pedido', 'cancelamento', 'quero cancelar'],
+            refund: ['reembolso', 'estorno', 'devolver o dinheiro', 'quero meu dinheiro de volta'],
+          };
+
+          const lastClientMessages = (messageHistory || [])
+            .filter((m: any) => m.direction === 'inbound')
+            .slice(-3)
+            .map((m: any) => (m.content || '').toLowerCase())
+            .join(' ');
+
+          let detectedAction: string | null = null;
+          for (const [action, keywords] of Object.entries(actionKeywords)) {
+            if (keywords.some(kw => lastClientMessages.includes(kw))) {
+              detectedAction = action;
+              break;
+            }
+          }
+
+          if (detectedAction && orders.length > 0) {
+            const order: any = orders[0];
+
+            // Evitar duplicar: já existe request pending do mesmo tipo p/ esse pedido?
+            const { data: existing } = await supabase
+              .from('requests')
+              .select('id')
+              .eq('ticket_id', item.ticket_id)
+              .eq('type', detectedAction)
+              .eq('status', 'pending')
+              .maybeSingle();
+
+            if (!existing) {
+              const requestDetails: any = { raw_request: lastClientMessages };
+
+              if (detectedAction === 'color_change') {
+                const colorMatch = lastClientMessages.match(/(?:para|quero|mudar para|cor)\s+([a-záàãéêíóôõúç\s]+?)(?:\.|,|!|\?|$)/i);
+                if (colorMatch) requestDetails.requested_color = colorMatch[1].trim().slice(0, 50);
+              }
+              if (detectedAction === 'size_change') {
+                const sizeMatch = lastClientMessages.match(/(?:para|tamanho)\s+(pp|p|m|g|gg|xg|xgg|\d{2})\b/i);
+                if (sizeMatch) requestDetails.requested_size = sizeMatch[1].toUpperCase();
+              }
+              if (detectedAction === 'address_update') {
+                requestDetails.new_address = lastClientMessages.slice(0, 500);
+              }
+
+              await supabase.from('requests').insert({
+                store_id: item.store_id,
+                ticket_id: item.ticket_id,
+                customer_phone: ticket.customer_phone,
+                customer_name: ticket.customer_name,
+                type: detectedAction,
+                order_id: String(order.id || order.order_number || ''),
+                order_name: order.name || order.order_number || null,
+                description: lastClientMessages.slice(0, 300),
+                details: requestDetails,
+                status: 'pending',
+              });
+
+              console.log(`[REQUEST CREATED] ${detectedAction} para pedido ${order.name || order.order_number}`);
+            }
+          }
+        } catch (e) {
+          console.error('[REQUEST DETECTION] erro não-fatal:', e);
+        }
+
         // Update ticket
         await supabase.from("tickets").update({
           last_message_at: new Date().toISOString(),

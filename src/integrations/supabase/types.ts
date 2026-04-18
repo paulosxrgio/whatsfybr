@@ -97,6 +97,7 @@ export type Database = {
       }
       customer_memory: {
         Row: {
+          customer_email: string | null
           customer_name: string | null
           customer_phone: string
           id: string
@@ -108,6 +109,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          customer_email?: string | null
           customer_name?: string | null
           customer_phone: string
           id?: string
@@ -119,6 +121,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          customer_email?: string | null
           customer_name?: string | null
           customer_phone?: string
           id?: string

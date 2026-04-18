@@ -1,0 +1,1 @@
+CREATE INDEX IF NOT EXISTS idx_customer_memory_email ON public.customer_memory(customer_email);

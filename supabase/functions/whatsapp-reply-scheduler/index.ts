@@ -587,11 +587,26 @@ ${formattedHistory}`;
         // ── Buscar pedidos Shopify (busca inteligente: telefone → email → número de pedido) ──
         let orderContext = "Nenhum pedido Shopify encontrado para este cliente.";
         let orders: any[] = [];
-        const savedEmail = (memory as any)?.customer_email || null;
+        let savedEmail: string | null = (memory as any)?.customer_email || null;
 
         // Extrair possível número de pedido / código de rastreio das últimas mensagens
         const lastMsgsText = (messageHistory || []).slice(-5).map((m: any) => m.content || "").join(" ");
         const orderNumMatch = lastMsgsText.match(/#?(\d{3,6})/);
+
+        // Fallback: se não tem email salvo, tentar extrair do histórico recente e salvar
+        if (!savedEmail) {
+          const emailInHistory = lastMsgsText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i)?.[0]?.toLowerCase();
+          if (emailInHistory) {
+            savedEmail = emailInHistory;
+            await supabase.from("customer_memory").upsert({
+              store_id: item.store_id,
+              customer_phone: ticket.customer_phone,
+              customer_email: emailInHistory,
+              updated_at: new Date().toISOString(),
+            }, { onConflict: "store_id,customer_phone" });
+            console.log(`[EMAIL RECOVERED FROM HISTORY] ${ticket.customer_phone} → ${emailInHistory}`);
+          }
+        }
 
         try {
           const supabaseUrl = Deno.env.get("SUPABASE_URL")!;

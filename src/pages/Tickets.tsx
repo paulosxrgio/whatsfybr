@@ -81,6 +81,7 @@ const TicketsPage = () => {
   const [shopifyCustomer, setShopifyCustomer] = useState<{ name: string } | null>(null);
   const [shopifyLoading, setShopifyLoading] = useState(false);
   const [shopifyError, setShopifyError] = useState<string | null>(null);
+  const [shopifyFoundByEmail, setShopifyFoundByEmail] = useState(false);
   const [exportModal, setExportModal] = useState(false);
   const [exportPeriod, setExportPeriod] = useState('today');
   const [exporting, setExporting] = useState(false);

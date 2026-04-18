@@ -613,6 +613,12 @@ const TicketsPage = () => {
                     {ticket.last_message_at && format(new Date(ticket.last_message_at), "HH:mm")}
                   </span>
                 </div>
+                {ticket.hasPendingRequest && (
+                  <div className="mt-1 flex items-center gap-1 text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md w-fit">
+                    <AlertTriangle className="h-3 w-3" />
+                    Solicitação pendente
+                  </div>
+                )}
                 <div className="flex items-center justify-between mt-0.5">
                   <span className="text-xs text-muted-foreground truncate">
                     {ticket.customer_phone}

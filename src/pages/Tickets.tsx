@@ -844,6 +844,11 @@ const TicketsPage = () => {
               <p className="text-xs text-muted-foreground">Nenhum pedido encontrado para este telefone.</p>
             ) : (
               <div className="space-y-2">
+                {shopifyFoundByEmail && customerMemory?.customer_email && (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Mail className="h-3 w-3" /> Pedidos encontrados pelo email cadastrado
+                  </p>
+                )}
                 {shopifyCustomer && (
                   <p className="text-xs text-muted-foreground">Cliente: {shopifyCustomer.name}</p>
                 )}

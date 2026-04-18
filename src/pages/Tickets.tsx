@@ -38,6 +38,7 @@ type Message = {
 type CustomerMemory = {
   customer_name: string | null;
   customer_phone: string;
+  customer_email: string | null;
   total_interactions: number | null;
   last_sentiment: string | null;
   preferred_language: string | null;

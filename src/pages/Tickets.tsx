@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Bot, Search, Phone, CheckCircle, RefreshCw, Globe, StickyNote, MessageSquare, CheckCheck, Loader2, Clock, TrendingUp, Headphones, HelpCircle, ShoppingBag, Package, ExternalLink, Copy, Download } from "lucide-react";
+import { Send, Bot, Search, Phone, Mail, CheckCircle, RefreshCw, Globe, StickyNote, MessageSquare, CheckCheck, Loader2, Clock, TrendingUp, Headphones, HelpCircle, ShoppingBag, Package, ExternalLink, Copy, Download } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { format, isToday, isSameDay } from "date-fns";
@@ -38,6 +38,7 @@ type Message = {
 type CustomerMemory = {
   customer_name: string | null;
   customer_phone: string;
+  customer_email: string | null;
   total_interactions: number | null;
   last_sentiment: string | null;
   preferred_language: string | null;
@@ -767,6 +768,11 @@ const TicketsPage = () => {
             <p className="text-sm text-muted-foreground flex items-center justify-center gap-1">
               <Phone className="h-3 w-3" /> {selectedTicket.customer_phone}
             </p>
+            {customerMemory?.customer_email && (
+              <p className="text-sm text-muted-foreground flex items-center justify-center gap-1 mt-1 break-all">
+                <Mail className="h-3 w-3 shrink-0" /> {customerMemory.customer_email}
+              </p>
+            )}
           </div>
 
           <div className="space-y-3 mb-6">

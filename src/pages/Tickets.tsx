@@ -81,6 +81,7 @@ const TicketsPage = () => {
   const [shopifyCustomer, setShopifyCustomer] = useState<{ name: string } | null>(null);
   const [shopifyLoading, setShopifyLoading] = useState(false);
   const [shopifyError, setShopifyError] = useState<string | null>(null);
+  const [shopifyFoundByEmail, setShopifyFoundByEmail] = useState(false);
   const [exportModal, setExportModal] = useState(false);
   const [exportPeriod, setExportPeriod] = useState('today');
   const [exporting, setExporting] = useState(false);
@@ -357,11 +358,13 @@ const TicketsPage = () => {
       setShopifyOrders([]);
       setShopifyCustomer(null);
       setShopifyError(null);
+      setShopifyFoundByEmail(false);
       return;
     }
     const fetchOrders = async () => {
       setShopifyLoading(true);
       setShopifyError(null);
+      setShopifyFoundByEmail(false);
       try {
         const { data, error } = await supabase.functions.invoke("fetch-shopify-orders", {
           body: { store_id: currentStore.id, customer_phone: selectedTicket.customer_phone, customer_name: selectedTicket.customer_name },
@@ -381,6 +384,7 @@ const TicketsPage = () => {
           }));
           setShopifyOrders(mappedOrders);
           setShopifyCustomer(data?.customer || null);
+          setShopifyFoundByEmail(!!data?.found_by_email);
         }
       } catch {
         setShopifyError("error");
@@ -840,6 +844,11 @@ const TicketsPage = () => {
               <p className="text-xs text-muted-foreground">Nenhum pedido encontrado para este telefone.</p>
             ) : (
               <div className="space-y-2">
+                {shopifyFoundByEmail && customerMemory?.customer_email && (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Mail className="h-3 w-3" /> Pedidos encontrados pelo email cadastrado
+                  </p>
+                )}
                 {shopifyCustomer && (
                   <p className="text-xs text-muted-foreground">Cliente: {shopifyCustomer.name}</p>
                 )}

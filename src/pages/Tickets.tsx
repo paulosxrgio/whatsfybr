@@ -896,6 +896,54 @@ const TicketsPage = () => {
             )}
           </div>
 
+          {/* Pending Requests */}
+          {pendingRequests.length > 0 && (
+            <div className="border-t pt-4 space-y-2">
+              <h4 className="font-semibold text-sm flex items-center gap-1.5 text-amber-700">
+                <AlertTriangle className="h-4 w-4" /> Solicitações Pendentes
+              </h4>
+              {pendingRequests.map((req) => (
+                <div key={req.id} className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 space-y-1.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <ClipboardList className="h-3.5 w-3.5 text-amber-700 shrink-0" />
+                        <span className="text-xs font-semibold text-amber-900">
+                          {requestTypeLabel[req.type || ""] || req.type}
+                        </span>
+                      </div>
+                      {req.order_name && (
+                        <p className="text-[11px] text-amber-800 mt-0.5">Pedido {req.order_name}</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => markRequestDone(req.id)}
+                      title="Marcar como feito"
+                      className="shrink-0 flex items-center gap-1 text-[10px] bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded-md transition-colors"
+                    >
+                      <Check className="h-3 w-3" /> Feito
+                    </button>
+                  </div>
+                  {req.details?.requested_color && (
+                    <p className="text-[11px] text-amber-900"><b>Nova cor:</b> {req.details.requested_color}</p>
+                  )}
+                  {req.details?.requested_size && (
+                    <p className="text-[11px] text-amber-900"><b>Novo tamanho:</b> {req.details.requested_size}</p>
+                  )}
+                  {req.details?.new_address && (
+                    <p className="text-[11px] text-amber-900 break-words"><b>Endereço:</b> {req.details.new_address}</p>
+                  )}
+                  {req.description && !req.details?.requested_color && !req.details?.requested_size && !req.details?.new_address && (
+                    <p className="text-[11px] text-amber-900 break-words italic">"{req.description}"</p>
+                  )}
+                  <p className="text-[10px] text-amber-700">
+                    {req.created_at && format(new Date(req.created_at), "dd/MM HH:mm")}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Shopify Orders */}
           <div className="border-t pt-4 space-y-3">
             <h4 className="font-semibold text-sm flex items-center gap-1.5">

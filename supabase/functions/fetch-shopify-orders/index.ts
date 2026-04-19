@@ -228,7 +228,7 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         query: `{
           customer(id: "${customerId}") {
-            orders(first: 10, sortKey: CREATED_AT, reverse: true, query: "financial_status:paid") {
+            orders(first: 10, sortKey: CREATED_AT, reverse: true) {
               edges {
                 node {
                   id

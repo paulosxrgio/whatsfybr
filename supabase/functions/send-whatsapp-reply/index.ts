@@ -10,13 +10,15 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { ticket_id, message, store_id } = await req.json();
+    const { ticket_id, message, store_id, source } = await req.json();
 
     if (!ticket_id || !message || !store_id) {
       return new Response(JSON.stringify({ error: "ticket_id, message, store_id required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    const messageSource: "manual" | "ai" = source === "ai" || source === "ai_generated" ? "ai" : "manual";
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -53,11 +55,49 @@ serve(async (req) => {
       content: message,
       direction: "outbound",
       message_type: "text",
+      source: messageSource,
     });
 
     await supabase.from("tickets").update({ last_message_at: new Date().toISOString() }).eq("id", ticket_id);
 
-    return new Response(JSON.stringify({ ok: true }), {
+    // Se foi resposta manual humana → salvar como exemplo de treinamento
+    if (messageSource === "manual") {
+      try {
+        const { data: recent } = await supabase
+          .from("messages")
+          .select("content, direction, message_type, created_at")
+          .eq("ticket_id", ticket_id)
+          .order("created_at", { ascending: false })
+          .limit(8);
+
+        const inboundMsgs = (recent || [])
+          .filter((m: any) => m.direction === "inbound")
+          .reverse()
+          .slice(-4)
+          .map((m: any) => {
+            if (m.message_type === "image") return m.content || "[imagem]";
+            if (m.message_type === "audio") return `[áudio: ${m.content || ""}]`;
+            return m.content || "";
+          })
+          .filter(Boolean)
+          .join("\n");
+
+        if (inboundMsgs.trim().length > 0) {
+          await supabase.from("training_examples").insert({
+            store_id,
+            ticket_id,
+            customer_input: inboundMsgs.slice(0, 1500),
+            ideal_response: message.slice(0, 2000),
+            source: "human_operator",
+          });
+          console.log(`[TRAINING] novo exemplo salvo para loja ${store_id}`);
+        }
+      } catch (te) {
+        console.error("[TRAINING ERROR]", te);
+      }
+    }
+
+    return new Response(JSON.stringify({ ok: true, source: messageSource }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {

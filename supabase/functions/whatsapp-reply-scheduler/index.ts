@@ -86,6 +86,13 @@ serve(async (req) => {
         const { data: ticket } = await supabase.from("tickets").select("*").eq("id", item.ticket_id).single();
         if (!ticket) { await supabase.from("auto_reply_queue").update({ status: "failed" }).eq("id", item.id); continue; }
 
+        // Skip se IA pausada manualmente neste ticket
+        if (ticket.ai_paused) {
+          await supabase.from("auto_reply_queue").update({ status: "skipped" }).eq("id", item.id);
+          console.log(`[SKIP] ticket ${item.ticket_id} com IA pausada manualmente`);
+          continue;
+        }
+
         // Find the last outbound message to know where to start consolidating
         const { data: lastOutbound } = await supabase
           .from("messages")
@@ -606,7 +613,24 @@ Só pedir email quando:
 - NÃO pedir email quando: cliente está só perguntando sobre produto/prazo/preço/troca em geral
 - NÃO pedir email quando: já encontrou o pedido anteriormente na mesma conversa`;
 
-        const systemPrompt = `${baseSystemPrompt}\n\n${modePrompt}${settings.ai_system_prompt ? `\n\n━━━━━━━━━━━━━━━━━━━━━━\nREGRAS ESPECÍFICAS DESTA LOJA\n━━━━━━━━━━━━━━━━━━━━━━\n\n${settings.ai_system_prompt}` : ""}`;
+        // ── Buscar exemplos de treinamento (respostas humanas ideais) ──
+        const { data: trainingExamples } = await supabase
+          .from("training_examples")
+          .select("customer_input, ideal_response")
+          .eq("store_id", item.store_id)
+          .order("created_at", { ascending: false })
+          .limit(10);
+
+        let trainingBlock = "";
+        if (trainingExamples && trainingExamples.length > 0) {
+          const formatted = trainingExamples
+            .map((e: any, i: number) => `Exemplo ${i + 1}:\nCliente disse: "${(e.customer_input || "").slice(0, 300)}"\nResposta ideal: "${(e.ideal_response || "").slice(0, 400)}"`)
+            .join("\n\n");
+          const truncated = formatted.slice(0, 2000);
+          trainingBlock = `\n\n━━━━━━━━━━━━━━━━━━━━━━\nEXEMPLOS DE RESPOSTAS IDEAIS (aprenda com estes — foram escritos por um operador humano)\n━━━━━━━━━━━━━━━━━━━━━━\n${truncated}\n\nAo responder, IMITE o tom, a estrutura e o estilo desses exemplos. Eles refletem como a loja gostaria que você respondesse.`;
+        }
+
+        const systemPrompt = `${baseSystemPrompt}\n\n${modePrompt}${settings.ai_system_prompt ? `\n\n━━━━━━━━━━━━━━━━━━━━━━\nREGRAS ESPECÍFICAS DESTA LOJA\n━━━━━━━━━━━━━━━━━━━━━━\n\n${settings.ai_system_prompt}` : ""}${trainingBlock}`;
 
         // ── Extração de fatos via IA para evitar loops ──
         let facts: Record<string, string | null> = {};

@@ -146,6 +146,18 @@ serve(async (req) => {
           .eq("customer_phone", ticket.customer_phone)
           .maybeSingle();
 
+        // ── Buscar solicitações já registradas para este ticket (anti-loop) ──
+        const { data: pendingRequests } = await supabase
+          .from("requests")
+          .select("type, order_name, details, created_at")
+          .eq("ticket_id", item.ticket_id)
+          .eq("status", "pending")
+          .order("created_at", { ascending: false });
+
+        const requestsContext = (pendingRequests && pendingRequests.length > 0)
+          ? `\n══════════════════════════════\nSOLICITAÇÕES JÁ REGISTRADAS PARA ESTE CLIENTE:\n${pendingRequests.map((r: any) => `- ${r.type} no pedido ${r.order_name || '(sem nº)'}: ${JSON.stringify(r.details || {})}`).join('\n')}\n\nINSTRUÇÃO CRÍTICA: Estas solicitações JÁ FORAM REGISTRADAS. NÃO peça as informações novamente. NÃO pergunte cor/tamanho/endereço se já estiverem nos detalhes acima. Apenas confirme que está sendo processado e tranquilize o cliente.\n══════════════════════════════\n`
+          : '';
+
         const storeName = (await supabase.from("stores").select("name").eq("id", item.store_id).single()).data?.name || "Loja";
 
         const conversationHistory = messageHistory?.slice(-3).map(m => m.content || "").filter(Boolean) || [];

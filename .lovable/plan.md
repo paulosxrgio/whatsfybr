@@ -1,64 +1,84 @@
 
-## Vision para imagens no WhatsApp
 
-Plano para habilitar análise de imagens via GPT-4o Vision no fluxo de atendimento.
+## Pause IA + Aprendizado por Operador
 
-### 1. `process-inbound-whatsapp/index.ts`
+3 funcionalidades integradas no fluxo de tickets.
 
-Hoje o código já detecta `body.image` e extrai `mediaUrl = body.image.imageUrl`. Vou adicionar análise Vision logo após salvar a mensagem inbound, quando `messageType === 'image'`:
+### 1. Migração de banco
 
-- Buscar `openai_api_key` em `account_settings` (mesmo padrão do bloco de áudio que já existe).
-- Baixar a imagem do `mediaUrl`, converter para base64 (usando loop para evitar stack overflow do `String.fromCharCode(...)` em imagens grandes).
-- Chamar `https://api.openai.com/v1/chat/completions` com modelo `gpt-4o`, `detail: 'low'`, prompt em português pedindo descrição objetiva (3 frases max).
-- Atualizar o `content` da mensagem salva para `[Imagem: <descrição>]` via `supabase.from('messages').update(...).eq('id', savedMessageId)`.
-- Em caso de falha: `[Imagem recebida — não foi possível analisar]`.
-- Logs com prefixo `[VISION]` / `[VISION ERROR]`.
+```sql
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS ai_paused boolean DEFAULT false;
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS ai_paused_at timestamptz;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS source text DEFAULT 'ai';
 
-Ajustes técnicos importantes:
-- O insert atual de mensagem não captura o ID retornado — preciso trocar por `.insert({...}).select('id').single()` para ter `savedMessageId`.
-- Usar conversão base64 em chunks (evita "Maximum call stack" com `Uint8Array` grande):
-  ```ts
-  let binary = '';
-  const bytes = new Uint8Array(imageBuffer);
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize) as any);
-  }
-  const base64Image = btoa(binary);
-  ```
+CREATE TABLE IF NOT EXISTS training_examples (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  store_id uuid NOT NULL,
+  ticket_id uuid,
+  customer_input text,
+  ideal_response text NOT NULL,
+  source text DEFAULT 'human_operator',
+  applied boolean DEFAULT false,
+  created_at timestamptz DEFAULT now()
+);
 
-### 2. `whatsapp-reply-scheduler/index.ts`
+ALTER TABLE training_examples ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users manage own store training" ON training_examples
+  FOR ALL USING (store_id IN (SELECT user_store_ids()))
+  WITH CHECK (store_id IN (SELECT user_store_ids()));
 
-O scheduler já consolida mensagens inbound desde a última outbound usando `m.content`. Como agora a mensagem de imagem terá `content = "[Imagem: descrição]"`, ela entra no histórico automaticamente.
-
-Vou apenas verificar/ajustar o ponto onde mensagens com `message_type === 'image'` eram tratadas como `'[Cliente enviou uma imagem]'` — substituir para usar `m.content` diretamente quando ele já contém a descrição (`[Imagem: ...]`), com fallback para o texto antigo se vazio.
-
-### 3. System prompt (3 lugares)
-
-Adicionar bloco `IMAGENS E MÍDIAS` em:
-- `supabase/functions/whatsapp-reply-scheduler/index.ts` — `baseSystemPrompt`
-- `src/pages/AIAgent.tsx` — `getDefaultPrompt`
-- `src/pages/Settings.tsx` — prompt padrão (se existir bloco equivalente)
-
-Bloco a adicionar:
-```
-━━━━━━━━━━━━━━━━━━━━━━
-IMAGENS E MÍDIAS
-━━━━━━━━━━━━━━━━━━━━━━
-- Quando ver [Imagem: descrição], use essa descrição para responder
-- Comprovante de pagamento → confirme recebimento e verifique no pedido
-- Print de anúncio/produto → identifique se é da Adorisse pelo domínio adorisse.com.br
-- Foto de produto recebido com problema → registre como solicitação de troca
-- NUNCA diga que não consegue ver imagens — agora você consegue
+CREATE INDEX idx_training_store_created ON training_examples(store_id, created_at DESC);
 ```
 
-### Observações
-- Usa a `openai_api_key` da conta (já configurada e usada para Whisper). Sem custo extra de setup.
-- `detail: 'low'` mantém custo baixo (~85 tokens/imagem).
-- Lojas existentes precisam clicar "Salvar" no Agente IA para o novo bloco entrar em vigor (prompt salvo no banco não é sobrescrito automaticamente).
+### 2. Toggle "IA ativa/pausada" no header — `src/pages/Tickets.tsx`
+
+- Adicionar `ai_paused` ao tipo `Ticket`.
+- No header (linhas 660-684), adicionar botão verde/vermelho que faz update em `tickets.ai_paused` e `ai_paused_at`.
+- Substituir o badge fixo "IA ativa" por esse toggle.
+- O realtime já existente em `tickets-realtime` atualiza o estado.
+- Quando `ai_paused`, mostrar banner âmbar acima do input: "⏸ IA pausada — você está respondendo manualmente".
+
+### 3. Scheduler ignora tickets pausados — `whatsapp-reply-scheduler/index.ts`
+
+No loop por item da fila (linha 36+), logo após buscar `ticket` (linha 86), adicionar:
+
+```ts
+if (ticket.ai_paused) {
+  await supabase.from("auto_reply_queue").update({ status: "skipped" }).eq("id", item.id);
+  console.log(`[SKIP] ticket ${item.ticket_id} com IA pausada`);
+  continue;
+}
+```
+
+### 4. Mensagens manuais salvam exemplo de treinamento
+
+Duas opções de onde fazer isso:
+- **`send-whatsapp-reply` edge function** — quando chamada pela UI manual, salvar `source='manual'` na inserção da mensagem e criar `training_example`. Esta é a opção que vou usar porque centraliza no servidor (mais robusto e evita inserções diretas do client passarem batido).
+
+No `send-whatsapp-reply/index.ts`:
+- Adicionar `source: 'manual'` no insert da mensagem outbound.
+- Após enviar, buscar últimas 6 mensagens do ticket, montar `customer_input` (concat de últimas inbound), e inserir em `training_examples`.
+
+### 5. Scheduler usa exemplos no prompt — `whatsapp-reply-scheduler/index.ts`
+
+Antes de montar o prompt final (perto da linha 306), buscar últimos 10 exemplos do `store_id` e injetar como bloco `EXEMPLOS DE RESPOSTAS IDEAIS` no `baseSystemPrompt`. Truncar para evitar prompts gigantes (limite ~2000 chars no bloco).
+
+### 6. Aba "Treinamento" em `src/pages/AIAgent.tsx`
+
+- Envolver o conteúdo atual em `<Tabs>` com 2 abas: "Configuração" (atual) e "Treinamento".
+- Aba Treinamento: lista os exemplos de `training_examples` da loja com:
+  - data, customer_input (preview), ideal_response (preview)
+  - botão "Excluir" (delete from training_examples)
+- Sem edição inline — só visualizar e deletar os ruins.
 
 ### Arquivos editados
-- `supabase/functions/process-inbound-whatsapp/index.ts`
-- `supabase/functions/whatsapp-reply-scheduler/index.ts`
-- `src/pages/AIAgent.tsx`
-- `src/pages/Settings.tsx` (se aplicável)
+- Migração nova
+- `src/pages/Tickets.tsx` (toggle, banner, tipo Ticket)
+- `src/pages/AIAgent.tsx` (Tabs + aba Treinamento)
+- `supabase/functions/whatsapp-reply-scheduler/index.ts` (skip pausados + injeção de exemplos)
+- `supabase/functions/send-whatsapp-reply/index.ts` (source=manual + insert training_example)
+
+### Observações
+- Mensagens enviadas via "Gerar resposta com IA" (botão azul) devem manter `source='ai'` — vou diferenciar pelo parâmetro passado do client (`source: 'manual' | 'ai_generated'`).
+- Não vou criar UI de "approved/applied" — todos os exemplos entram automaticamente no prompt (limite 10 mais recentes). Operador pode podar deletando.
+

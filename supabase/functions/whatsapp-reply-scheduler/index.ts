@@ -796,7 +796,7 @@ ${formattedHistory}
 NOVAS MENSAGENS DO CLIENTE AGUARDANDO RESPOSTA:
 ${consolidatedInput}
 ══════════════════════════════
-
+${requestsContext}
 ${orderContext}
 ${emailContext}
 

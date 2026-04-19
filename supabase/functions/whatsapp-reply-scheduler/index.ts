@@ -146,6 +146,18 @@ serve(async (req) => {
           .eq("customer_phone", ticket.customer_phone)
           .maybeSingle();
 
+        // ── Buscar solicitações já registradas para este ticket (anti-loop) ──
+        const { data: pendingRequests } = await supabase
+          .from("requests")
+          .select("type, order_name, details, created_at")
+          .eq("ticket_id", item.ticket_id)
+          .eq("status", "pending")
+          .order("created_at", { ascending: false });
+
+        const requestsContext = (pendingRequests && pendingRequests.length > 0)
+          ? `\n══════════════════════════════\nSOLICITAÇÕES JÁ REGISTRADAS PARA ESTE CLIENTE:\n${pendingRequests.map((r: any) => `- ${r.type} no pedido ${r.order_name || '(sem nº)'}: ${JSON.stringify(r.details || {})}`).join('\n')}\n\nINSTRUÇÃO CRÍTICA: Estas solicitações JÁ FORAM REGISTRADAS. NÃO peça as informações novamente. NÃO pergunte cor/tamanho/endereço se já estiverem nos detalhes acima. Apenas confirme que está sendo processado e tranquilize o cliente.\n══════════════════════════════\n`
+          : '';
+
         const storeName = (await supabase.from("stores").select("name").eq("id", item.store_id).single()).data?.name || "Loja";
 
         const conversationHistory = messageHistory?.slice(-3).map(m => m.content || "").filter(Boolean) || [];
@@ -476,10 +488,22 @@ Use naturalmente quando apropriado:
 REGRA ANTI-REPETIÇÃO — CRÍTICA
 ━━━━━━━━━━━━━━━━━━━━━━
 
-Antes de fazer qualquer pergunta, verifique o histórico da conversa.
-Se o cliente já respondeu essa pergunta antes, NÃO pergunte de novo.
-Se o cliente repetiu a mesma informação mais de uma vez, reconheça isso:
-"Desculpe, vi que você já tinha me dito sobre o Vestido Daphne. Vou responder agora..."
+Antes de fazer qualquer pergunta, verifique o histórico da conversa E a seção "SOLICITAÇÕES JÁ REGISTRADAS".
+
+Se já existe uma SOLICITAÇÃO REGISTRADA para este cliente:
+- NÃO peça a informação novamente
+- NÃO pergunte "qual cor você gostaria?" se a cor já foi informada
+- NÃO pergunte tamanho/endereço/produto se já estão nos detalhes registrados
+- Responda: "Sua solicitação de [tipo] já está registrada e sendo processada. Nossa equipe resolverá em até 24h. 💛"
+
+Se o cliente responder "ok", "obrigada", "tudo bem", "valeu" após uma confirmação:
+- Responda brevemente e encerre: "Fico por aqui! Qualquer dúvida, é só chamar. 😊"
+- NÃO repita o status do pedido, NÃO pergunte mais nada
+
+Se o cliente der uma informação (cor, tamanho, endereço) pela SEGUNDA vez:
+- Significa que você perguntou de novo sem necessidade
+- Responda: "Perfeito, já anotei! Sua solicitação está registrada. 💛"
+- Não peça mais nada
 
 NUNCA peça uma informação que já apareceu no histórico acima.
 NUNCA ignore uma informação que o cliente forneceu.
@@ -772,7 +796,7 @@ ${formattedHistory}
 NOVAS MENSAGENS DO CLIENTE AGUARDANDO RESPOSTA:
 ${consolidatedInput}
 ══════════════════════════════
-
+${requestsContext}
 ${orderContext}
 ${emailContext}
 

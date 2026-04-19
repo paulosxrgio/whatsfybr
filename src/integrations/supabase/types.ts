@@ -345,6 +345,45 @@ export type Database = {
         }
         Relationships: []
       }
+      supervisor_reports: {
+        Row: {
+          created_at: string | null
+          critical_errors: Json | null
+          date: string
+          id: string
+          patterns_found: Json | null
+          prompt_additions: Json | null
+          score: number | null
+          store_id: string
+          summary: string | null
+          tickets_analyzed: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          critical_errors?: Json | null
+          date?: string
+          id?: string
+          patterns_found?: Json | null
+          prompt_additions?: Json | null
+          score?: number | null
+          store_id: string
+          summary?: string | null
+          tickets_analyzed?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          critical_errors?: Json | null
+          date?: string
+          id?: string
+          patterns_found?: Json | null
+          prompt_additions?: Json | null
+          score?: number | null
+          store_id?: string
+          summary?: string | null
+          tickets_analyzed?: number | null
+        }
+        Relationships: []
+      }
       tickets: {
         Row: {
           created_at: string | null

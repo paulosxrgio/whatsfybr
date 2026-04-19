@@ -256,6 +256,10 @@ const AIAgentPage = () => {
   const [accountModel, setAccountModel] = useState<string | null>(null);
   const [trainingExamples, setTrainingExamples] = useState<TrainingExample[]>([]);
   const [trainingLoading, setTrainingLoading] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [lastReport, setLastReport] = useState<SupervisorReport | null>(null);
+  const [promptUpdatedAt, setPromptUpdatedAt] = useState<string | null>(null);
+  const [forcingAnalysis, setForcingAnalysis] = useState(false);
 
   const fetchTrainingExamples = async () => {
     if (!currentStore) return;

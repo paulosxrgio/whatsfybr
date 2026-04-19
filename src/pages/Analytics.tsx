@@ -71,8 +71,27 @@ const AnalyticsPage = () => {
     setLoadingReports(false);
   };
 
+  const fetchAgentStats = async () => {
+    if (!currentStore) return;
+    const [ticketsRes, weekReportsRes] = await Promise.all([
+      supabase.from("tickets").select("ai_paused").eq("store_id", currentStore.id).eq("status", "open"),
+      supabase.from("supervisor_reports").select("score, prompt_additions, created_at").eq("store_id", currentStore.id).order("created_at", { ascending: false }).limit(7),
+    ]);
+    const tks = ticketsRes.data || [];
+    const sophiaActive = tks.filter((t: any) => !t.ai_paused).length;
+    const sophiaPaused = tks.filter((t: any) => t.ai_paused).length;
+    const week = weekReportsRes.data || [];
+    const scores = week.map((r: any) => Number(r.score)).filter((n: number) => !Number.isNaN(n));
+    const weekAvgScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
+    const lastCerebroRun = week[0]?.created_at || null;
+    const lastReport = week[0];
+    const lastAdditions = Array.isArray(lastReport?.prompt_additions) ? lastReport.prompt_additions : [];
+    setAgentStats({ sophiaActive, sophiaPaused, weekAvgScore, lastCerebroRun, lastAdditions });
+  };
+
   useEffect(() => {
     fetchReports();
+    fetchAgentStats();
   }, [currentStore]);
 
   const runSupervisorNow = async () => {

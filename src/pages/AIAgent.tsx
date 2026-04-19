@@ -456,24 +456,120 @@ const AIAgentPage = () => {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>System Prompt</CardTitle>
-              <CardDescription>Prompt usado pela Sophia para gerar respostas</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Textarea
-                value={aiPrompt}
-                onChange={(e) => setAiPrompt(e.target.value)}
-                rows={18}
-                className="text-xs font-mono"
-              />
+          {/* Cérebro status card */}
+          <Card className="bg-muted/30">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-semibold flex items-center gap-2">
+                  <Brain className="h-4 w-4 text-primary" /> Agente Cérebro
+                </h4>
+                <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+                  ativo
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-3 text-xs text-muted-foreground">
+                <div>
+                  <p className="font-medium text-foreground text-base">
+                    {lastReport?.score != null ? `${lastReport.score}/10` : "—"}
+                  </p>
+                  <p>Score de ontem</p>
+                </div>
+                <div>
+                  <p className="font-medium text-foreground text-base">
+                    {Array.isArray(lastReport?.prompt_additions) ? lastReport!.prompt_additions.length : 0}
+                  </p>
+                  <p>Regras adicionadas</p>
+                </div>
+                <div>
+                  <p className="font-medium text-foreground text-base">
+                    {lastReport?.tickets_analyzed ?? 0}
+                  </p>
+                  <p>Conversas analisadas</p>
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleForceAnalysis}
+                disabled={forcingAnalysis}
+                className="mt-3 gap-2"
+              >
+                <Play className="h-3 w-3" /> {forcingAnalysis ? "Analisando..." : "Forçar análise agora"}
+              </Button>
             </CardContent>
           </Card>
 
-          <Button onClick={handleSave} disabled={saving} className="w-full gap-2">
-            <Save className="h-4 w-4" /> {saving ? "Salvando..." : "Salvar configurações"}
-          </Button>
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>System Prompt</CardTitle>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <Brain className="h-3 w-3" /> Gerenciado pelo Cérebro
+                  </span>
+                  {lastReport?.created_at && (
+                    <span className="text-xs text-muted-foreground">
+                      Última atualização: {format(new Date(lastReport.created_at), "dd/MM HH:mm")}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {editMode && (
+                <div className="border border-amber-300 bg-amber-50 dark:bg-amber-950/20 rounded-md p-3 flex gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                    Você está editando manualmente. A próxima análise do Cérebro irá adicionar regras ao final deste prompt, mas não apagará o que você escrever aqui.
+                  </p>
+                </div>
+              )}
+
+              <Textarea
+                value={aiPrompt}
+                onChange={(e) => editMode && setAiPrompt(e.target.value)}
+                readOnly={!editMode}
+                rows={editMode ? 18 : 8}
+                className={
+                  editMode
+                    ? "text-xs font-mono"
+                    : "text-xs font-mono bg-muted/50 border-dashed text-muted-foreground resize-none cursor-default opacity-70"
+                }
+              />
+
+              <p className="text-xs text-muted-foreground">
+                ℹ️ Este prompt é atualizado automaticamente pelo agente Cérebro todo dia às 23h com base nas conversas do dia.
+              </p>
+
+              {!editMode ? (
+                <button
+                  onClick={() => setEditMode(true)}
+                  className="text-xs text-muted-foreground underline hover:text-foreground"
+                >
+                  Editar manualmente (modo avançado)
+                </button>
+              ) : (
+                <div className="flex gap-2">
+                  <Button onClick={handleSave} disabled={saving} size="sm" className="gap-2">
+                    <Save className="h-4 w-4" /> {saving ? "Salvando..." : "Salvar prompt"}
+                  </Button>
+                  <Button
+                    onClick={() => setEditMode(false)}
+                    variant="ghost"
+                    size="sm"
+                  >
+                    Cancelar
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {!editMode && (
+            <Button onClick={handleSave} disabled={saving} variant="outline" className="w-full gap-2">
+              <Save className="h-4 w-4" /> {saving ? "Salvando..." : "Salvar configurações gerais"}
+            </Button>
+          )}
 
           <Card>
             <CardHeader>

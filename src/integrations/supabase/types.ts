@@ -554,6 +554,14 @@ export type Database = {
         }
         Returns: boolean
       }
+      upsert_reply_queue: {
+        Args: {
+          p_scheduled_for: string
+          p_store_id: string
+          p_ticket_id: string
+        }
+        Returns: undefined
+      }
       user_store_ids: { Args: never; Returns: string[] }
     }
     Enums: {

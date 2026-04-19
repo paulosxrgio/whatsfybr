@@ -741,15 +741,20 @@ ${formattedHistory}`;
 
               if (savedEmail) {
                 try {
+                  console.log(`[EMAIL SEARCH] Buscando pedidos via email: ${savedEmail}`);
                   const emailRes = await fetch(`${shopifyUrl}/admin/api/2024-01/orders.json?email=${encodeURIComponent(savedEmail)}&status=any&limit=5`, { headers: shopifyHeaders });
                   if (emailRes.ok) {
                     const emailData = await emailRes.json();
                     if (emailData.orders?.length > 0) {
                       orders = emailData.orders.map(mapShopifyOrder);
-                      console.log(`Pedidos via email salvo (${savedEmail}): ${orders.length}`);
+                      console.log(`[EMAIL SEARCH] ${orders.length} pedido(s) encontrado(s) via email ${savedEmail}`);
+                    } else {
+                      console.log(`[EMAIL SEARCH] Nenhum pedido encontrado via email ${savedEmail}`);
                     }
+                  } else {
+                    console.error(`[EMAIL SEARCH] HTTP ${emailRes.status} ao buscar por email`);
                   }
-                } catch (e) { console.error("Erro busca por email:", e); }
+                } catch (e) { console.error("[EMAIL SEARCH ERROR]", e); }
               }
 
               if (orders.length === 0 && orderNumMatch) {

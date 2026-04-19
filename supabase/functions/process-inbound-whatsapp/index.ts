@@ -356,48 +356,17 @@ serve(async (req) => {
       const waitMs = 45000; // 45 seconds smart wait
       const newScheduledTime = new Date(Date.now() + waitMs).toISOString();
 
-      // Check if there's already a pending queue item for this ticket
-      const { data: existingQueue } = await supabase
-        .from("auto_reply_queue")
-        .select("id, message_count")
-        .eq("ticket_id", ticketId)
-        .eq("status", "pending")
-        .maybeSingle();
+      // Upsert atômico via RPC — atualiza item pending existente OU insere novo
+      const { error: queueError } = await supabase.rpc("upsert_reply_queue", {
+        p_ticket_id: ticketId,
+        p_store_id: storeId,
+        p_scheduled_for: newScheduledTime,
+      });
 
-      let updatedRows: any[] | null = null;
-      if (existingQueue) {
-        // Reset timer and increment counter — guard com status=pending para evitar race
-        const { data: updated } = await supabase
-          .from("auto_reply_queue")
-          .update({
-            scheduled_for: newScheduledTime,
-            message_count: (existingQueue.message_count || 1) + 1,
-            pending_since: new Date().toISOString(),
-          })
-          .eq("id", existingQueue.id)
-          .eq("status", "pending")
-          .select();
-
-        updatedRows = updated || [];
-        if (updatedRows.length > 0) {
-          console.log(`[QUEUE RESET] ticket ${ticketId} — timer resetado. Mensagens: ${(existingQueue.message_count || 1) + 1}`);
-        } else {
-          console.log(`[QUEUE STALE] item ${existingQueue.id} já não está pending — criando novo`);
-        }
-      }
-
-      if (!existingQueue || (updatedRows !== null && updatedRows.length === 0)) {
-        // First message OR existing item já foi processado — create new queue item
-        await supabase.from("auto_reply_queue").insert({
-          ticket_id: ticketId,
-          store_id: storeId,
-          status: "pending",
-          scheduled_for: newScheduledTime,
-          pending_since: new Date().toISOString(),
-          message_count: 1,
-        });
-
-        console.log(`[QUEUE CREATED] ticket ${ticketId} — agendado para ${newScheduledTime}`);
+      if (queueError) {
+        console.error("[QUEUE ERROR]", queueError);
+      } else {
+        console.log(`[QUEUE UPSERT] ticket ${ticketId} — agendado para ${newScheduledTime}`);
       }
     }
 

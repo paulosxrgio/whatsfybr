@@ -4,7 +4,7 @@ import { useStore } from "@/contexts/StoreContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { Bot, Save, TrendingUp, ExternalLink, GraduationCap, Trash2 } from "lucide-react";
+import { Bot, Save, TrendingUp, ExternalLink, GraduationCap, Trash2, Brain, Play, AlertTriangle } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,14 @@ type TrainingExample = {
   customer_input: string | null;
   ideal_response: string;
   source: string | null;
+  created_at: string;
+};
+
+type SupervisorReport = {
+  id: string;
+  score: number | null;
+  prompt_additions: any;
+  tickets_analyzed: number | null;
   created_at: string;
 };
 
@@ -248,6 +256,10 @@ const AIAgentPage = () => {
   const [accountModel, setAccountModel] = useState<string | null>(null);
   const [trainingExamples, setTrainingExamples] = useState<TrainingExample[]>([]);
   const [trainingLoading, setTrainingLoading] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [lastReport, setLastReport] = useState<SupervisorReport | null>(null);
+  const [promptUpdatedAt, setPromptUpdatedAt] = useState<string | null>(null);
+  const [forcingAnalysis, setForcingAnalysis] = useState(false);
 
   const fetchTrainingExamples = async () => {
     if (!currentStore) return;
@@ -262,9 +274,39 @@ const AIAgentPage = () => {
     setTrainingLoading(false);
   };
 
+  const fetchLastReport = async () => {
+    if (!currentStore) return;
+    const { data } = await supabase
+      .from("supervisor_reports")
+      .select("id, score, prompt_additions, tickets_analyzed, created_at")
+      .eq("store_id", currentStore.id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    setLastReport((data as SupervisorReport) || null);
+  };
+
   useEffect(() => {
-    if (currentStore) fetchTrainingExamples();
+    if (currentStore) {
+      fetchTrainingExamples();
+      fetchLastReport();
+    }
   }, [currentStore]);
+
+  const handleForceAnalysis = async () => {
+    if (!currentStore) return;
+    setForcingAnalysis(true);
+    const { error } = await supabase.functions.invoke("supervisor-agent", {
+      body: { store_id: currentStore.id },
+    });
+    if (error) {
+      toast.error("Erro ao forçar análise");
+    } else {
+      toast.success("Análise iniciada! Aguarde alguns segundos.");
+      setTimeout(() => fetchLastReport(), 5000);
+    }
+    setForcingAnalysis(false);
+  };
 
   const deleteExample = async (id: string) => {
     const { error } = await supabase.from("training_examples").delete().eq("id", id);
@@ -314,12 +356,14 @@ const AIAgentPage = () => {
   const handleSave = async () => {
     if (!currentStore) return;
     setSaving(true);
-    const payload = {
+    const payload: any = {
       store_id: currentStore.id,
       ai_is_active: aiIsActive,
       ai_response_delay: aiDelay,
-      ai_system_prompt: aiPrompt,
     };
+    if (editMode) {
+      payload.ai_system_prompt = aiPrompt;
+    }
 
     let error;
     if (settingsId) {
@@ -331,7 +375,10 @@ const AIAgentPage = () => {
     }
 
     if (error) toast.error("Erro ao salvar configurações");
-    else toast.success("Configurações salvas!");
+    else {
+      toast.success("Configurações salvas!");
+      if (editMode) setEditMode(false);
+    }
     setSaving(false);
   };
 
@@ -409,24 +456,120 @@ const AIAgentPage = () => {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>System Prompt</CardTitle>
-              <CardDescription>Prompt usado pela Sophia para gerar respostas</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Textarea
-                value={aiPrompt}
-                onChange={(e) => setAiPrompt(e.target.value)}
-                rows={18}
-                className="text-xs font-mono"
-              />
+          {/* Cérebro status card */}
+          <Card className="bg-muted/30">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-semibold flex items-center gap-2">
+                  <Brain className="h-4 w-4 text-primary" /> Agente Cérebro
+                </h4>
+                <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+                  ativo
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-3 text-xs text-muted-foreground">
+                <div>
+                  <p className="font-medium text-foreground text-base">
+                    {lastReport?.score != null ? `${lastReport.score}/10` : "—"}
+                  </p>
+                  <p>Score de ontem</p>
+                </div>
+                <div>
+                  <p className="font-medium text-foreground text-base">
+                    {Array.isArray(lastReport?.prompt_additions) ? lastReport!.prompt_additions.length : 0}
+                  </p>
+                  <p>Regras adicionadas</p>
+                </div>
+                <div>
+                  <p className="font-medium text-foreground text-base">
+                    {lastReport?.tickets_analyzed ?? 0}
+                  </p>
+                  <p>Conversas analisadas</p>
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleForceAnalysis}
+                disabled={forcingAnalysis}
+                className="mt-3 gap-2"
+              >
+                <Play className="h-3 w-3" /> {forcingAnalysis ? "Analisando..." : "Forçar análise agora"}
+              </Button>
             </CardContent>
           </Card>
 
-          <Button onClick={handleSave} disabled={saving} className="w-full gap-2">
-            <Save className="h-4 w-4" /> {saving ? "Salvando..." : "Salvar configurações"}
-          </Button>
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>System Prompt</CardTitle>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <Brain className="h-3 w-3" /> Gerenciado pelo Cérebro
+                  </span>
+                  {lastReport?.created_at && (
+                    <span className="text-xs text-muted-foreground">
+                      Última atualização: {format(new Date(lastReport.created_at), "dd/MM HH:mm")}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {editMode && (
+                <div className="border border-destructive/40 bg-destructive/10 rounded-md p-3 flex gap-2">
+                  <AlertTriangle className="h-4 w-4 text-destructive flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-foreground">
+                    Você está editando manualmente. A próxima análise do Cérebro irá adicionar regras ao final deste prompt, mas não apagará o que você escrever aqui.
+                  </p>
+                </div>
+              )}
+
+              <Textarea
+                value={aiPrompt}
+                onChange={(e) => editMode && setAiPrompt(e.target.value)}
+                readOnly={!editMode}
+                rows={editMode ? 18 : 8}
+                className={
+                  editMode
+                    ? "text-xs font-mono"
+                    : "text-xs font-mono bg-muted/50 border-dashed text-muted-foreground resize-none cursor-default opacity-70"
+                }
+              />
+
+              <p className="text-xs text-muted-foreground">
+                ℹ️ Este prompt é atualizado automaticamente pelo agente Cérebro todo dia às 23h com base nas conversas do dia.
+              </p>
+
+              {!editMode ? (
+                <button
+                  onClick={() => setEditMode(true)}
+                  className="text-xs text-muted-foreground underline hover:text-foreground"
+                >
+                  Editar manualmente (modo avançado)
+                </button>
+              ) : (
+                <div className="flex gap-2">
+                  <Button onClick={handleSave} disabled={saving} size="sm" className="gap-2">
+                    <Save className="h-4 w-4" /> {saving ? "Salvando..." : "Salvar prompt"}
+                  </Button>
+                  <Button
+                    onClick={() => setEditMode(false)}
+                    variant="ghost"
+                    size="sm"
+                  >
+                    Cancelar
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {!editMode && (
+            <Button onClick={handleSave} disabled={saving} variant="outline" className="w-full gap-2">
+              <Save className="h-4 w-4" /> {saving ? "Salvando..." : "Salvar configurações gerais"}
+            </Button>
+          )}
 
           <Card>
             <CardHeader>

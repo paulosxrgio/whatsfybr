@@ -196,7 +196,7 @@ serve(async (req) => {
     }
 
     // Save inbound message
-    const { error: msgError } = await supabase.from("messages").insert({
+    const { data: savedMessage, error: msgError } = await supabase.from("messages").insert({
       ticket_id: ticketId,
       store_id: storeId,
       content,
@@ -204,12 +204,101 @@ serve(async (req) => {
       message_type: messageType,
       media_url: mediaUrl,
       zapi_message_id: zapiMessageId,
-    });
+    }).select("id").single();
+
+    const savedMessageId = savedMessage?.id || null;
 
     if (msgError) {
       console.error("Erro ao salvar mensagem:", msgError);
     } else {
       console.log("Mensagem salva com sucesso");
+    }
+
+    // ── VISION: Analisar imagens recebidas com GPT-4o ──
+    if (messageType === "image" && mediaUrl && savedMessageId) {
+      try {
+        const { data: storeData } = await supabase.from("stores").select("user_id").eq("id", storeId).single();
+        const { data: acctSettings } = storeData
+          ? await supabase.from("account_settings").select("openai_api_key").eq("user_id", storeData.user_id).maybeSingle()
+          : { data: null };
+
+        const openaiKey = acctSettings?.openai_api_key;
+
+        if (!openaiKey) {
+          console.log("[VISION] OpenAI API key não configurada — pulando análise");
+          await supabase.from("messages").update({
+            content: "[Imagem recebida — análise indisponível]",
+          }).eq("id", savedMessageId);
+        } else {
+          // Baixar imagem
+          const imageRes = await fetch(mediaUrl);
+          if (!imageRes.ok) throw new Error(`Falha ao baixar imagem: HTTP ${imageRes.status}`);
+          const imageBuffer = await imageRes.arrayBuffer();
+          const mimeType = imageRes.headers.get("content-type") || "image/jpeg";
+
+          // Converter para base64 em chunks (evita stack overflow em imagens grandes)
+          let binary = "";
+          const bytes = new Uint8Array(imageBuffer);
+          const chunkSize = 0x8000;
+          for (let i = 0; i < bytes.length; i += chunkSize) {
+            binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize) as any);
+          }
+          const base64Image = btoa(binary);
+
+          // Analisar com GPT-4o Vision
+          const visionRes = await fetch("https://api.openai.com/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${openaiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: "gpt-4o",
+              max_tokens: 300,
+              messages: [{
+                role: "user",
+                content: [
+                  {
+                    type: "image_url",
+                    image_url: {
+                      url: `data:${mimeType};base64,${base64Image}`,
+                      detail: "low",
+                    },
+                  },
+                  {
+                    type: "text",
+                    text: "Descreva em português o que está nessa imagem de forma objetiva. Se for um produto, descreva o produto. Se for um print/screenshot, descreva o que está escrito. Se for um comprovante, identifique o tipo. Máximo 3 frases.",
+                  },
+                ],
+              }],
+            }),
+          });
+
+          const visionData = await visionRes.json();
+          if (!visionRes.ok) {
+            console.error(`[VISION ERROR] HTTP ${visionRes.status}`, JSON.stringify(visionData));
+            await supabase.from("messages").update({
+              content: "[Imagem recebida — não foi possível analisar]",
+            }).eq("id", savedMessageId);
+          } else {
+            const description = visionData.choices?.[0]?.message?.content?.trim() || "";
+            if (description) {
+              const newContent = `[Imagem: ${description}]`;
+              await supabase.from("messages").update({ content: newContent }).eq("id", savedMessageId);
+              console.log(`[VISION] Imagem analisada: ${description}`);
+            } else {
+              await supabase.from("messages").update({
+                content: "[Imagem recebida — descrição vazia]",
+              }).eq("id", savedMessageId);
+            }
+          }
+        }
+      } catch (e) {
+        console.error("[VISION ERROR]", e);
+        await supabase.from("messages").update({
+          content: "[Imagem recebida — não foi possível analisar]",
+        }).eq("id", savedMessageId);
+      }
     }
 
     // Detectar email na mensagem (para captura inteligente)

@@ -26,6 +26,13 @@ const AnalyticsPage = () => {
   const [reports, setReports] = useState<SupervisorReport[]>([]);
   const [loadingReports, setLoadingReports] = useState(false);
   const [runningSupervisor, setRunningSupervisor] = useState(false);
+  const [agentStats, setAgentStats] = useState({
+    sophiaActive: 0,
+    sophiaPaused: 0,
+    weekAvgScore: null as number | null,
+    lastCerebroRun: null as string | null,
+    lastAdditions: [] as string[],
+  });
 
   useEffect(() => {
     if (!currentStore) return;

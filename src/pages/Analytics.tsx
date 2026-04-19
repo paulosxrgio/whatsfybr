@@ -191,6 +191,87 @@ const AnalyticsPage = () => {
           </div>
         </TabsContent>
 
+        <TabsContent value="agents" className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Bot className="h-5 w-5 text-primary" /> Sophia
+                </CardTitle>
+                <CardDescription>Atendente WhatsApp — front-line</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center gap-2 text-sm">
+                  <CheckCircle2 className="h-4 w-4 text-green-600" />
+                  <span><strong>{agentStats.sophiaActive}</strong> tickets com IA ativa</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <PauseCircle className="h-4 w-4 text-amber-600" />
+                  <span><strong>{agentStats.sophiaPaused}</strong> tickets com IA pausada</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <Activity className="h-4 w-4 text-muted-foreground" />
+                  <span>Ativada por cron a cada 1 minuto</span>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Brain className="h-5 w-5 text-primary" /> Cérebro
+                </CardTitle>
+                <CardDescription>Supervisor da Sophia — background</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center gap-2 text-sm">
+                  <Activity className="h-4 w-4 text-muted-foreground" />
+                  <span>
+                    Última execução:{" "}
+                    <strong>
+                      {agentStats.lastCerebroRun
+                        ? new Date(agentStats.lastCerebroRun).toLocaleString("pt-BR")
+                        : "nunca"}
+                    </strong>
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                  <span>
+                    Score médio (7 dias):{" "}
+                    <strong className={scoreColor(agentStats.weekAvgScore)}>
+                      {agentStats.weekAvgScore != null ? agentStats.weekAvgScore.toFixed(1) : "—"}/10
+                    </strong>
+                  </span>
+                </div>
+                <Button onClick={runSupervisorNow} disabled={runningSupervisor} size="sm" className="gap-2 w-full">
+                  <RefreshCw className={`h-4 w-4 ${runningSupervisor ? "animate-spin" : ""}`} />
+                  {runningSupervisor ? "Analisando..." : "Forçar análise agora"}
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-primary" /> Últimas correções aplicadas pelo Cérebro
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {agentStats.lastAdditions.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Nenhuma correção registrada ainda. O Cérebro roda diariamente às 23:00 ou por execução manual.
+                </p>
+              ) : (
+                <ul className="text-sm list-disc pl-5 space-y-1">
+                  {agentStats.lastAdditions.map((a, i) => <li key={i}>{a}</li>)}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="supervisor" className="space-y-4">
           <div className="flex items-center justify-between">
             <div>

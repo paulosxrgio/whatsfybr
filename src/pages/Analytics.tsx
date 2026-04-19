@@ -103,7 +103,7 @@ const AnalyticsPage = () => {
       });
       if (error) throw error;
       toast.success("Análise do supervisor executada!");
-      await fetchReports();
+      await Promise.all([fetchReports(), fetchAgentStats()]);
     } catch (e: any) {
       toast.error("Erro ao executar supervisor: " + e.message);
     } finally {

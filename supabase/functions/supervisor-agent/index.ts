@@ -105,7 +105,22 @@ serve(async (req) => {
     const lovableKey = Deno.env.get("LOVABLE_API_KEY");
     let analysisText = "{}";
 
-    const userPrompt = `Analise estas ${conversations.length} conversas de hoje:\n\n${JSON.stringify(conversations, null, 2)}`;
+    // Buscar últimos 7 relatórios para evitar repetir correções já aplicadas
+    const { data: recentReports } = await supabase
+      .from("supervisor_reports")
+      .select("date, summary, prompt_additions")
+      .eq("store_id", storeId)
+      .order("date", { ascending: false })
+      .limit(7);
+
+    const pastCorrections = (recentReports && recentReports.length > 0)
+      ? `\n\nCORREÇÕES JÁ APLICADAS NOS ÚLTIMOS 7 DIAS (NÃO REPITA):\n${recentReports.map((r: any) => {
+          const adds = Array.isArray(r.prompt_additions) ? r.prompt_additions : [];
+          return `${r.date}: ${adds.join(" | ") || "(sem novas regras)"}`;
+        }).join("\n")}`
+      : "";
+
+    const userPrompt = `Analise estas ${conversations.length} conversas de hoje:\n\n${JSON.stringify(conversations, null, 2)}${pastCorrections}`;
 
     if (lovableKey) {
       const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {

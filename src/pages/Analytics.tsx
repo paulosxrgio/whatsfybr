@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { BarChart3, MessageCircle, Clock, Smile, ShieldCheck, AlertTriangle, TrendingUp, Sparkles, RefreshCw } from "lucide-react";
+import { BarChart3, MessageCircle, Clock, Smile, ShieldCheck, AlertTriangle, TrendingUp, Sparkles, RefreshCw, Bot, Brain, Activity, CheckCircle2, PauseCircle } from "lucide-react";
 import { toast } from "sonner";
 
 type SupervisorReport = {

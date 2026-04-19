@@ -150,6 +150,7 @@ export type Database = {
           id: string
           media_url: string | null
           message_type: string | null
+          source: string | null
           store_id: string
           ticket_id: string
           zapi_message_id: string | null
@@ -161,6 +162,7 @@ export type Database = {
           id?: string
           media_url?: string | null
           message_type?: string | null
+          source?: string | null
           store_id: string
           ticket_id: string
           zapi_message_id?: string | null
@@ -172,6 +174,7 @@ export type Database = {
           id?: string
           media_url?: string | null
           message_type?: string | null
+          source?: string | null
           store_id?: string
           ticket_id?: string
           zapi_message_id?: string | null
@@ -386,6 +389,8 @@ export type Database = {
       }
       tickets: {
         Row: {
+          ai_paused: boolean | null
+          ai_paused_at: string | null
           created_at: string | null
           customer_name: string | null
           customer_phone: string
@@ -397,6 +402,8 @@ export type Database = {
           store_id: string
         }
         Insert: {
+          ai_paused?: boolean | null
+          ai_paused_at?: string | null
           created_at?: string | null
           customer_name?: string | null
           customer_phone: string
@@ -408,6 +415,8 @@ export type Database = {
           store_id: string
         }
         Update: {
+          ai_paused?: boolean | null
+          ai_paused_at?: string | null
           created_at?: string | null
           customer_name?: string | null
           customer_phone?: string
@@ -427,6 +436,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      training_examples: {
+        Row: {
+          applied: boolean | null
+          created_at: string | null
+          customer_input: string | null
+          id: string
+          ideal_response: string
+          source: string | null
+          store_id: string
+          ticket_id: string | null
+        }
+        Insert: {
+          applied?: boolean | null
+          created_at?: string | null
+          customer_input?: string | null
+          id?: string
+          ideal_response: string
+          source?: string | null
+          store_id: string
+          ticket_id?: string | null
+        }
+        Update: {
+          applied?: boolean | null
+          created_at?: string | null
+          customer_input?: string | null
+          id?: string
+          ideal_response?: string
+          source?: string | null
+          store_id?: string
+          ticket_id?: string | null
+        }
+        Relationships: []
       }
       user_roles: {
         Row: {

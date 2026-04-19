@@ -4,13 +4,23 @@ import { useStore } from "@/contexts/StoreContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { Bot, Save, TrendingUp, ExternalLink } from "lucide-react";
+import { Bot, Save, TrendingUp, ExternalLink, GraduationCap, Trash2 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
+import { format } from "date-fns";
+
+type TrainingExample = {
+  id: string;
+  customer_input: string | null;
+  ideal_response: string;
+  source: string | null;
+  created_at: string;
+};
 
 const getDefaultPrompt = (storeName: string) =>
   `Você é Sophia, atendente de suporte da loja ${storeName} via WhatsApp.
@@ -236,6 +246,35 @@ const AIAgentPage = () => {
   const [loading, setLoading] = useState(true);
   const [accountProvider, setAccountProvider] = useState<string | null>(null);
   const [accountModel, setAccountModel] = useState<string | null>(null);
+  const [trainingExamples, setTrainingExamples] = useState<TrainingExample[]>([]);
+  const [trainingLoading, setTrainingLoading] = useState(false);
+
+  const fetchTrainingExamples = async () => {
+    if (!currentStore) return;
+    setTrainingLoading(true);
+    const { data } = await supabase
+      .from("training_examples")
+      .select("id, customer_input, ideal_response, source, created_at")
+      .eq("store_id", currentStore.id)
+      .order("created_at", { ascending: false })
+      .limit(50);
+    setTrainingExamples((data as TrainingExample[]) || []);
+    setTrainingLoading(false);
+  };
+
+  useEffect(() => {
+    if (currentStore) fetchTrainingExamples();
+  }, [currentStore]);
+
+  const deleteExample = async (id: string) => {
+    const { error } = await supabase.from("training_examples").delete().eq("id", id);
+    if (error) {
+      toast.error("Erro ao excluir exemplo");
+      return;
+    }
+    setTrainingExamples((prev) => prev.filter((e) => e.id !== id));
+    toast.success("Exemplo excluído");
+  };
 
   useEffect(() => {
     if (!currentStore || !user) return;
@@ -306,81 +345,149 @@ const AIAgentPage = () => {
         <Bot className="h-6 w-6 text-primary" /> Agente IA — Sophia
       </h1>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Provedor de IA</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-muted-foreground">
-              {accountProvider && accountModel
-                ? `Provedor configurado em Minha Conta: ${accountProvider === "openai" ? "OpenAI" : "Anthropic"} — ${accountModel}`
-                : "Nenhum provedor configurado. Configure em Minha Conta."}
-            </div>
-            <Button variant="outline" size="sm" onClick={() => navigate("/account-settings")} className="gap-1">
-              <ExternalLink className="h-3 w-3" /> Alterar em Minha Conta
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      <Tabs defaultValue="config" className="w-full">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="config" className="gap-2">
+            <Bot className="h-4 w-4" /> Configuração
+          </TabsTrigger>
+          <TabsTrigger value="training" className="gap-2">
+            <GraduationCap className="h-4 w-4" /> Treinamento
+            {trainingExamples.length > 0 && (
+              <span className="ml-1 text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
+                {trainingExamples.length}
+              </span>
+            )}
+          </TabsTrigger>
+        </TabsList>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Controle</CardTitle>
-        </CardHeader>
-        <CardContent className="flex items-center justify-between">
-          <Label>Ativar respostas automáticas</Label>
-          <Switch checked={aiIsActive} onCheckedChange={setAiIsActive} />
-        </CardContent>
-      </Card>
+        <TabsContent value="config" className="space-y-6 mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Provedor de IA</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-muted-foreground">
+                  {accountProvider && accountModel
+                    ? `Provedor configurado em Minha Conta: ${accountProvider === "openai" ? "OpenAI" : "Anthropic"} — ${accountModel}`
+                    : "Nenhum provedor configurado. Configure em Minha Conta."}
+                </div>
+                <Button variant="outline" size="sm" onClick={() => navigate("/account-settings")} className="gap-1">
+                  <ExternalLink className="h-3 w-3" /> Alterar em Minha Conta
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Delay de Resposta</CardTitle>
-          <CardDescription>Tempo em segundos antes de enviar a resposta (simula digitação)</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center gap-3">
-            <Input
-              type="number"
-              min={0}
-              max={30}
-              value={aiDelay}
-              onChange={(e) => setAiDelay(Number(e.target.value))}
-              className="w-24"
-            />
-            <span className="text-sm text-muted-foreground">segundos</span>
-          </div>
-        </CardContent>
-      </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Controle</CardTitle>
+            </CardHeader>
+            <CardContent className="flex items-center justify-between">
+              <Label>Ativar respostas automáticas</Label>
+              <Switch checked={aiIsActive} onCheckedChange={setAiIsActive} />
+            </CardContent>
+          </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>System Prompt</CardTitle>
-          <CardDescription>Prompt usado pela Sophia para gerar respostas</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Textarea
-            value={aiPrompt}
-            onChange={(e) => setAiPrompt(e.target.value)}
-            rows={18}
-            className="text-xs font-mono"
-          />
-        </CardContent>
-      </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Delay de Resposta</CardTitle>
+              <CardDescription>Tempo em segundos antes de enviar a resposta (simula digitação)</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-3">
+                <Input
+                  type="number"
+                  min={0}
+                  max={30}
+                  value={aiDelay}
+                  onChange={(e) => setAiDelay(Number(e.target.value))}
+                  className="w-24"
+                />
+                <span className="text-sm text-muted-foreground">segundos</span>
+              </div>
+            </CardContent>
+          </Card>
 
-      <Button onClick={handleSave} disabled={saving} className="w-full gap-2">
-        <Save className="h-4 w-4" /> {saving ? "Salvando..." : "Salvar configurações"}
-      </Button>
+          <Card>
+            <CardHeader>
+              <CardTitle>System Prompt</CardTitle>
+              <CardDescription>Prompt usado pela Sophia para gerar respostas</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Textarea
+                value={aiPrompt}
+                onChange={(e) => setAiPrompt(e.target.value)}
+                rows={18}
+                className="text-xs font-mono"
+              />
+            </CardContent>
+          </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><TrendingUp className="h-5 w-5" /> Sugestões de Melhoria</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">As sugestões serão geradas com base nas interações da Sophia com os clientes.</p>
-        </CardContent>
-      </Card>
+          <Button onClick={handleSave} disabled={saving} className="w-full gap-2">
+            <Save className="h-4 w-4" /> {saving ? "Salvando..." : "Salvar configurações"}
+          </Button>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><TrendingUp className="h-5 w-5" /> Sugestões de Melhoria</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">As sugestões serão geradas com base nas interações da Sophia com os clientes.</p>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="training" className="space-y-4 mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <GraduationCap className="h-5 w-5" /> Exemplos de Treinamento
+              </CardTitle>
+              <CardDescription>
+                Quando você pausa a IA num ticket e responde manualmente, sua resposta é salva aqui como exemplo. A Sophia usa os 10 mais recentes para imitar seu estilo.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {trainingLoading ? (
+                <p className="text-sm text-muted-foreground text-center py-8">Carregando...</p>
+              ) : trainingExamples.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-8">
+                  Nenhum exemplo ainda. Pause a IA num ticket e responda manualmente para criar exemplos.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {trainingExamples.map((ex) => (
+                    <div key={ex.id} className="border rounded-lg p-3 space-y-2 bg-muted/30">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">
+                          {format(new Date(ex.created_at), "dd/MM/yyyy HH:mm")} · {ex.source || "human_operator"}
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => deleteExample(ex.id)}
+                          className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-muted-foreground mb-1">Cliente disse:</p>
+                        <p className="text-sm whitespace-pre-wrap line-clamp-3">{ex.customer_input || "—"}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-muted-foreground mb-1">Resposta ideal:</p>
+                        <p className="text-sm whitespace-pre-wrap line-clamp-4">{ex.ideal_response}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 };

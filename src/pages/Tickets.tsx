@@ -21,6 +21,8 @@ type Ticket = {
   last_message_at: string | null;
   created_at: string | null;
   intent?: string | null;
+  ai_paused?: boolean | null;
+  ai_paused_at?: string | null;
   hasPendingQueue?: boolean;
   pendingMessageCount?: number;
   hasPendingRequest?: boolean;
@@ -462,7 +464,7 @@ const TicketsPage = () => {
     setSending(true);
     try {
       const { error } = await supabase.functions.invoke("send-whatsapp-reply", {
-        body: { ticket_id: selectedTicket.id, message: newMessage, store_id: currentStore.id },
+        body: { ticket_id: selectedTicket.id, message: newMessage, store_id: currentStore.id, source: "manual" },
       });
       if (error) throw error;
       setNewMessage("");
@@ -659,10 +661,37 @@ const TicketsPage = () => {
               </div>
               <div className="flex items-center gap-2">
                 {aiIsActive && (
-                  <span className="flex items-center gap-1 text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full">
+                  <button
+                    onClick={async () => {
+                      const newPaused = !selectedTicket.ai_paused;
+                      const { error } = await supabase
+                        .from("tickets")
+                        .update({
+                          ai_paused: newPaused,
+                          ai_paused_at: newPaused ? new Date().toISOString() : null,
+                        })
+                        .eq("id", selectedTicket.id);
+                      if (error) {
+                        toast.error("Erro ao alterar estado da IA");
+                        return;
+                      }
+                      setSelectedTicket({
+                        ...selectedTicket,
+                        ai_paused: newPaused,
+                        ai_paused_at: newPaused ? new Date().toISOString() : null,
+                      });
+                      toast.success(newPaused ? "IA pausada neste ticket" : "IA reativada");
+                    }}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-colors",
+                      selectedTicket.ai_paused
+                        ? "bg-red-100 text-red-700 hover:bg-red-200"
+                        : "bg-green-100 text-green-700 hover:bg-green-200"
+                    )}
+                  >
                     <Bot className="w-3 h-3" />
-                    IA ativa
-                  </span>
+                    {selectedTicket.ai_paused ? "⏸ IA pausada" : "▶ IA ativa"}
+                  </button>
                 )}
                 {selectedTicket.intent === "sales" && (
                   <span className="flex items-center gap-1 text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
@@ -778,6 +807,15 @@ const TicketsPage = () => {
                 <div ref={messagesEndRef} />
               </div>
             </div>
+
+            {/* Banner IA pausada */}
+            {selectedTicket.ai_paused && (
+              <div className="flex-shrink-0 bg-amber-50 border-t border-amber-200 px-4 py-2">
+                <p className="text-xs text-amber-700">
+                  ⏸ IA pausada — você está respondendo manualmente. Suas respostas serão usadas para treinar a Sophia.
+                </p>
+              </div>
+            )}
 
             {/* Input */}
             <div className="flex-shrink-0 p-3 bg-[#f0f2f5] border-t flex items-end gap-2">

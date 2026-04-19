@@ -356,12 +356,14 @@ const AIAgentPage = () => {
   const handleSave = async () => {
     if (!currentStore) return;
     setSaving(true);
-    const payload = {
+    const payload: any = {
       store_id: currentStore.id,
       ai_is_active: aiIsActive,
       ai_response_delay: aiDelay,
-      ai_system_prompt: aiPrompt,
     };
+    if (editMode) {
+      payload.ai_system_prompt = aiPrompt;
+    }
 
     let error;
     if (settingsId) {
@@ -373,7 +375,10 @@ const AIAgentPage = () => {
     }
 
     if (error) toast.error("Erro ao salvar configurações");
-    else toast.success("Configurações salvas!");
+    else {
+      toast.success("Configurações salvas!");
+      if (editMode) setEditMode(false);
+    }
     setSaving(false);
   };
 

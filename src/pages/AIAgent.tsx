@@ -4,13 +4,23 @@ import { useStore } from "@/contexts/StoreContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { Bot, Save, TrendingUp, ExternalLink } from "lucide-react";
+import { Bot, Save, TrendingUp, ExternalLink, GraduationCap, Trash2 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
+import { format } from "date-fns";
+
+type TrainingExample = {
+  id: string;
+  customer_input: string | null;
+  ideal_response: string;
+  source: string | null;
+  created_at: string;
+};
 
 const getDefaultPrompt = (storeName: string) =>
   `Você é Sophia, atendente de suporte da loja ${storeName} via WhatsApp.

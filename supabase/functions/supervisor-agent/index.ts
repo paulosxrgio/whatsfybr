@@ -21,7 +21,7 @@ O QUE NÃO MUDAR NA SOPHIA:
 - Regra de não pedir email sem necessidade
 - Sistema de rastreamento via parcelpanel`;
 
-const SUPERVISOR_SYSTEM_PROMPT = `${CEREBRO_MEMORY}
+const buildSupervisorPrompt = (memory: string) => `${memory}
 
 Você vai analisar conversas e identificar:
 1. Erros da atendente (loops, respostas erradas, promessas não cumpridas)

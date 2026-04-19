@@ -265,6 +265,7 @@ serve(async (req) => {
 
     if (settings?.ai_is_active) {
       const waitMs = 45000; // 45 seconds smart wait
+      const newScheduledTime = new Date(Date.now() + waitMs).toISOString();
 
       // Check if there's already a pending queue item for this ticket
       const { data: existingQueue } = await supabase
@@ -274,30 +275,40 @@ serve(async (req) => {
         .eq("status", "pending")
         .maybeSingle();
 
+      let updatedRows: any[] | null = null;
       if (existingQueue) {
-        // Reset timer and increment counter
-        await supabase
+        // Reset timer and increment counter — guard com status=pending para evitar race
+        const { data: updated } = await supabase
           .from("auto_reply_queue")
           .update({
-            scheduled_for: new Date(Date.now() + waitMs).toISOString(),
+            scheduled_for: newScheduledTime,
             message_count: (existingQueue.message_count || 1) + 1,
             pending_since: new Date().toISOString(),
           })
-          .eq("id", existingQueue.id);
+          .eq("id", existingQueue.id)
+          .eq("status", "pending")
+          .select();
 
-        console.log(`Timer resetado para ticket ${ticketId}. Mensagens acumuladas: ${(existingQueue.message_count || 1) + 1}`);
-      } else {
-        // First message — create new queue item
+        updatedRows = updated || [];
+        if (updatedRows.length > 0) {
+          console.log(`[QUEUE RESET] ticket ${ticketId} — timer resetado. Mensagens: ${(existingQueue.message_count || 1) + 1}`);
+        } else {
+          console.log(`[QUEUE STALE] item ${existingQueue.id} já não está pending — criando novo`);
+        }
+      }
+
+      if (!existingQueue || (updatedRows !== null && updatedRows.length === 0)) {
+        // First message OR existing item já foi processado — create new queue item
         await supabase.from("auto_reply_queue").insert({
           ticket_id: ticketId,
           store_id: storeId,
           status: "pending",
-          scheduled_for: new Date(Date.now() + waitMs).toISOString(),
+          scheduled_for: newScheduledTime,
           pending_since: new Date().toISOString(),
           message_count: 1,
         });
 
-        console.log(`Nova mensagem enfileirada para ticket ${ticketId}. Aguardando 45s.`);
+        console.log(`[QUEUE CREATED] ticket ${ticketId} — agendado para ${newScheduledTime}`);
       }
     }
 

@@ -21,7 +21,7 @@ O QUE NÃO MUDAR NA SOPHIA:
 - Regra de não pedir email sem necessidade
 - Sistema de rastreamento via parcelpanel`;
 
-const SUPERVISOR_SYSTEM_PROMPT = `${CEREBRO_MEMORY}
+const buildSupervisorPrompt = (memory: string) => `${memory}
 
 Você vai analisar conversas e identificar:
 1. Erros da atendente (loops, respostas erradas, promessas não cumpridas)
@@ -97,9 +97,12 @@ serve(async (req) => {
     // 3. Buscar config de IA da loja (provider/keys)
     const { data: settings } = await supabase
       .from("settings")
-      .select("ai_provider, ai_model, openai_api_key, anthropic_api_key, ai_system_prompt, zapi_instance_id, zapi_token, zapi_client_token")
+      .select("ai_provider, ai_model, openai_api_key, anthropic_api_key, ai_system_prompt, zapi_instance_id, zapi_token, zapi_client_token, cerebro_memory")
       .eq("store_id", storeId)
       .maybeSingle();
+
+    const activeMemory = (settings as any)?.cerebro_memory || CEREBRO_MEMORY;
+    const SUPERVISOR_SYSTEM_PROMPT = buildSupervisorPrompt(activeMemory);
 
     // 4. Enviar para IA analisar — preferir Lovable AI Gateway
     const lovableKey = Deno.env.get("LOVABLE_API_KEY");
@@ -197,6 +200,17 @@ ${analysis.prompt_additions.map((r: string) => `- ${r}`).join("\n")}`;
       prompt_additions: analysis.prompt_additions || [],
       summary: analysis.summary,
     });
+
+    // 6.1 Atualizar MEMORY do Cérebro com novos padrões identificados (acumula histórico)
+    if (analysis.patterns_found?.length > 0) {
+      const today = new Date().toLocaleDateString("pt-BR");
+      const memoryUpdate = `${activeMemory}\n\n## Padrão identificado em ${today}:\n${analysis.patterns_found.map((p: string) => `- ${p}`).join("\n")}`;
+      await supabase
+        .from("settings")
+        .update({ cerebro_memory: memoryUpdate.slice(-5000) })
+        .eq("store_id", storeId);
+      console.log(`[SUPERVISOR] Memória do Cérebro atualizada com ${analysis.patterns_found.length} novos padrões`);
+    }
 
     // 7. Enviar resumo para WhatsApp se score baixo ou erros críticos
     if ((analysis.score < 7 || analysis.critical_errors?.length > 0) && settings?.zapi_instance_id && settings?.zapi_token) {

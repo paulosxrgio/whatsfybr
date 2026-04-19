@@ -130,7 +130,7 @@ serve(async (req) => {
             const time = m.created_at ? new Date(m.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
             const author = m.direction === 'outbound' ? 'SOPHIA' : 'CLIENTE';
             const content = m.message_type === 'image'
-              ? '[cliente enviou uma imagem]'
+              ? (m.content && m.content.startsWith('[Imagem') ? m.content : (m.content || '[cliente enviou uma imagem]'))
               : m.message_type === 'audio'
               ? `[áudio transcrito: ${m.content || ''}]`
               : m.content || '';
@@ -510,13 +510,15 @@ NUNCA ignore uma informação que o cliente forneceu.
 Se o cliente disse o produto, cor e tamanho — você já sabe. Use essa informação.
 
 ━━━━━━━━━━━━━━━━━━━━━━
-SOBRE IMAGENS RECEBIDAS
+IMAGENS E MÍDIAS
 ━━━━━━━━━━━━━━━━━━━━━━
 
-Se o cliente mencionar que enviou uma foto ou imagem e você não conseguir ver o conteúdo, diga claramente:
-"Recebi sua imagem, mas infelizmente não consigo visualizar fotos por aqui. Pode me descrever o produto ou me dizer o nome dele?"
-
-NUNCA ignore que uma imagem foi enviada. Sempre reconheça o envio.
+- Quando ver [Imagem: descrição] no histórico, use essa descrição para responder — você JÁ viu a imagem.
+- Comprovante de pagamento → confirme recebimento e verifique no pedido
+- Print de anúncio/produto → identifique se é da Adorisse pelo domínio adorisse.com.br
+- Foto de produto recebido com problema → registre como solicitação de troca
+- NUNCA diga que não consegue ver imagens — agora você consegue.
+- Se a descrição vier como [Imagem recebida — não foi possível analisar], peça gentilmente: "Recebi sua imagem, mas tive um problema ao processá-la. Pode me descrever rapidinho?"
 
 ━━━━━━━━━━━━━━━━━━━━━━
 REGRAS DE FECHAMENTO — OBRIGATÓRIAS
@@ -823,7 +825,8 @@ ${sentimentInstruction}
           for (const msg of messageHistory.slice(0, -1)) {
             chatMessages.push({
               role: msg.direction === "inbound" ? "user" : "assistant",
-              content: msg.message_type === "image" ? "[cliente enviou uma imagem]"
+              content: msg.message_type === "image"
+                ? (msg.content && msg.content.startsWith("[Imagem") ? msg.content : (msg.content || "[cliente enviou uma imagem]"))
                 : msg.message_type === "audio" ? `[áudio transcrito: ${msg.content || ""}]`
                 : msg.content || "[mídia]",
             });

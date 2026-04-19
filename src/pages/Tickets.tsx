@@ -464,7 +464,7 @@ const TicketsPage = () => {
     setSending(true);
     try {
       const { error } = await supabase.functions.invoke("send-whatsapp-reply", {
-        body: { ticket_id: selectedTicket.id, message: newMessage, store_id: currentStore.id },
+        body: { ticket_id: selectedTicket.id, message: newMessage, store_id: currentStore.id, source: "manual" },
       });
       if (error) throw error;
       setNewMessage("");

@@ -85,7 +85,7 @@ const AnalyticsPage = () => {
     const weekAvgScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
     const lastCerebroRun = week[0]?.created_at || null;
     const lastReport = week[0];
-    const lastAdditions = Array.isArray(lastReport?.prompt_additions) ? lastReport.prompt_additions : [];
+    const lastAdditions: string[] = Array.isArray(lastReport?.prompt_additions) ? (lastReport.prompt_additions as any[]).map((x: any) => String(x)) : [];
     setAgentStats({ sophiaActive, sophiaPaused, weekAvgScore, lastCerebroRun, lastAdditions });
   };
 

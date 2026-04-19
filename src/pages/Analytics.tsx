@@ -139,6 +139,9 @@ const AnalyticsPage = () => {
       <Tabs defaultValue="overview" className="w-full">
         <TabsList>
           <TabsTrigger value="overview">Visão Geral</TabsTrigger>
+          <TabsTrigger value="agents" className="gap-1">
+            <Bot className="h-4 w-4" /> Agentes
+          </TabsTrigger>
           <TabsTrigger value="supervisor" className="gap-1">
             <ShieldCheck className="h-4 w-4" /> Supervisor IA
           </TabsTrigger>

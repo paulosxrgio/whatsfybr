@@ -274,9 +274,39 @@ const AIAgentPage = () => {
     setTrainingLoading(false);
   };
 
+  const fetchLastReport = async () => {
+    if (!currentStore) return;
+    const { data } = await supabase
+      .from("supervisor_reports")
+      .select("id, score, prompt_additions, tickets_analyzed, created_at")
+      .eq("store_id", currentStore.id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    setLastReport((data as SupervisorReport) || null);
+  };
+
   useEffect(() => {
-    if (currentStore) fetchTrainingExamples();
+    if (currentStore) {
+      fetchTrainingExamples();
+      fetchLastReport();
+    }
   }, [currentStore]);
+
+  const handleForceAnalysis = async () => {
+    if (!currentStore) return;
+    setForcingAnalysis(true);
+    const { error } = await supabase.functions.invoke("supervisor-agent", {
+      body: { store_id: currentStore.id },
+    });
+    if (error) {
+      toast.error("Erro ao forçar análise");
+    } else {
+      toast.success("Análise iniciada! Aguarde alguns segundos.");
+      setTimeout(() => fetchLastReport(), 5000);
+    }
+    setForcingAnalysis(false);
+  };
 
   const deleteExample = async (id: string) => {
     const { error } = await supabase.from("training_examples").delete().eq("id", id);

@@ -22,6 +22,14 @@ type TrainingExample = {
   created_at: string;
 };
 
+type SupervisorReport = {
+  id: string;
+  score: number | null;
+  prompt_additions: any;
+  tickets_analyzed: number | null;
+  created_at: string;
+};
+
 const getDefaultPrompt = (storeName: string) =>
   `Você é Sophia, atendente de suporte da loja ${storeName} via WhatsApp.
 

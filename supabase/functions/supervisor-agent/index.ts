@@ -201,6 +201,17 @@ ${analysis.prompt_additions.map((r: string) => `- ${r}`).join("\n")}`;
       summary: analysis.summary,
     });
 
+    // 6.1 Atualizar MEMORY do Cérebro com novos padrões identificados (acumula histórico)
+    if (analysis.patterns_found?.length > 0) {
+      const today = new Date().toLocaleDateString("pt-BR");
+      const memoryUpdate = `${activeMemory}\n\n## Padrão identificado em ${today}:\n${analysis.patterns_found.map((p: string) => `- ${p}`).join("\n")}`;
+      await supabase
+        .from("settings")
+        .update({ cerebro_memory: memoryUpdate.slice(-5000) })
+        .eq("store_id", storeId);
+      console.log(`[SUPERVISOR] Memória do Cérebro atualizada com ${analysis.patterns_found.length} novos padrões`);
+    }
+
     // 7. Enviar resumo para WhatsApp se score baixo ou erros críticos
     if ((analysis.score < 7 || analysis.critical_errors?.length > 0) && settings?.zapi_instance_id && settings?.zapi_token) {
       const alertMessage = `🤖 *Relatório Diário Sophia*\n\n`

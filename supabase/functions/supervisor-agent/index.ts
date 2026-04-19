@@ -97,9 +97,12 @@ serve(async (req) => {
     // 3. Buscar config de IA da loja (provider/keys)
     const { data: settings } = await supabase
       .from("settings")
-      .select("ai_provider, ai_model, openai_api_key, anthropic_api_key, ai_system_prompt, zapi_instance_id, zapi_token, zapi_client_token")
+      .select("ai_provider, ai_model, openai_api_key, anthropic_api_key, ai_system_prompt, zapi_instance_id, zapi_token, zapi_client_token, cerebro_memory")
       .eq("store_id", storeId)
       .maybeSingle();
+
+    const activeMemory = (settings as any)?.cerebro_memory || CEREBRO_MEMORY;
+    const SUPERVISOR_SYSTEM_PROMPT = buildSupervisorPrompt(activeMemory);
 
     // 4. Enviar para IA analisar — preferir Lovable AI Gateway
     const lovableKey = Deno.env.get("LOVABLE_API_KEY");

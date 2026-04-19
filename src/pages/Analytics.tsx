@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { BarChart3, MessageCircle, Clock, Smile, ShieldCheck, AlertTriangle, TrendingUp, Sparkles, RefreshCw } from "lucide-react";
+import { BarChart3, MessageCircle, Clock, Smile, ShieldCheck, AlertTriangle, TrendingUp, Sparkles, RefreshCw, Bot, Brain, Activity, CheckCircle2, PauseCircle } from "lucide-react";
 import { toast } from "sonner";
 
 type SupervisorReport = {
@@ -26,6 +26,13 @@ const AnalyticsPage = () => {
   const [reports, setReports] = useState<SupervisorReport[]>([]);
   const [loadingReports, setLoadingReports] = useState(false);
   const [runningSupervisor, setRunningSupervisor] = useState(false);
+  const [agentStats, setAgentStats] = useState({
+    sophiaActive: 0,
+    sophiaPaused: 0,
+    weekAvgScore: null as number | null,
+    lastCerebroRun: null as string | null,
+    lastAdditions: [] as string[],
+  });
 
   useEffect(() => {
     if (!currentStore) return;
@@ -64,8 +71,27 @@ const AnalyticsPage = () => {
     setLoadingReports(false);
   };
 
+  const fetchAgentStats = async () => {
+    if (!currentStore) return;
+    const [ticketsRes, weekReportsRes] = await Promise.all([
+      supabase.from("tickets").select("ai_paused").eq("store_id", currentStore.id).eq("status", "open"),
+      supabase.from("supervisor_reports").select("score, prompt_additions, created_at").eq("store_id", currentStore.id).order("created_at", { ascending: false }).limit(7),
+    ]);
+    const tks = ticketsRes.data || [];
+    const sophiaActive = tks.filter((t: any) => !t.ai_paused).length;
+    const sophiaPaused = tks.filter((t: any) => t.ai_paused).length;
+    const week = weekReportsRes.data || [];
+    const scores = week.map((r: any) => Number(r.score)).filter((n: number) => !Number.isNaN(n));
+    const weekAvgScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
+    const lastCerebroRun = week[0]?.created_at || null;
+    const lastReport = week[0];
+    const lastAdditions: string[] = Array.isArray(lastReport?.prompt_additions) ? (lastReport.prompt_additions as any[]).map((x: any) => String(x)) : [];
+    setAgentStats({ sophiaActive, sophiaPaused, weekAvgScore, lastCerebroRun, lastAdditions });
+  };
+
   useEffect(() => {
     fetchReports();
+    fetchAgentStats();
   }, [currentStore]);
 
   const runSupervisorNow = async () => {
@@ -77,7 +103,7 @@ const AnalyticsPage = () => {
       });
       if (error) throw error;
       toast.success("Análise do supervisor executada!");
-      await fetchReports();
+      await Promise.all([fetchReports(), fetchAgentStats()]);
     } catch (e: any) {
       toast.error("Erro ao executar supervisor: " + e.message);
     } finally {
@@ -113,6 +139,9 @@ const AnalyticsPage = () => {
       <Tabs defaultValue="overview" className="w-full">
         <TabsList>
           <TabsTrigger value="overview">Visão Geral</TabsTrigger>
+          <TabsTrigger value="agents" className="gap-1">
+            <Bot className="h-4 w-4" /> Agentes
+          </TabsTrigger>
           <TabsTrigger value="supervisor" className="gap-1">
             <ShieldCheck className="h-4 w-4" /> Supervisor IA
           </TabsTrigger>
@@ -160,6 +189,87 @@ const AnalyticsPage = () => {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        <TabsContent value="agents" className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Bot className="h-5 w-5 text-primary" /> Sophia
+                </CardTitle>
+                <CardDescription>Atendente WhatsApp — front-line</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center gap-2 text-sm">
+                  <CheckCircle2 className="h-4 w-4 text-green-600" />
+                  <span><strong>{agentStats.sophiaActive}</strong> tickets com IA ativa</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <PauseCircle className="h-4 w-4 text-amber-600" />
+                  <span><strong>{agentStats.sophiaPaused}</strong> tickets com IA pausada</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <Activity className="h-4 w-4 text-muted-foreground" />
+                  <span>Ativada por cron a cada 1 minuto</span>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Brain className="h-5 w-5 text-primary" /> Cérebro
+                </CardTitle>
+                <CardDescription>Supervisor da Sophia — background</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center gap-2 text-sm">
+                  <Activity className="h-4 w-4 text-muted-foreground" />
+                  <span>
+                    Última execução:{" "}
+                    <strong>
+                      {agentStats.lastCerebroRun
+                        ? new Date(agentStats.lastCerebroRun).toLocaleString("pt-BR")
+                        : "nunca"}
+                    </strong>
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                  <span>
+                    Score médio (7 dias):{" "}
+                    <strong className={scoreColor(agentStats.weekAvgScore)}>
+                      {agentStats.weekAvgScore != null ? agentStats.weekAvgScore.toFixed(1) : "—"}/10
+                    </strong>
+                  </span>
+                </div>
+                <Button onClick={runSupervisorNow} disabled={runningSupervisor} size="sm" className="gap-2 w-full">
+                  <RefreshCw className={`h-4 w-4 ${runningSupervisor ? "animate-spin" : ""}`} />
+                  {runningSupervisor ? "Analisando..." : "Forçar análise agora"}
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-primary" /> Últimas correções aplicadas pelo Cérebro
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {agentStats.lastAdditions.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Nenhuma correção registrada ainda. O Cérebro roda diariamente às 23:00 ou por execução manual.
+                </p>
+              ) : (
+                <ul className="text-sm list-disc pl-5 space-y-1">
+                  {agentStats.lastAdditions.map((a, i) => <li key={i}>{a}</li>)}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="supervisor" className="space-y-4">

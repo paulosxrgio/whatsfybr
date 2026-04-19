@@ -517,9 +517,9 @@ const AIAgentPage = () => {
             </CardHeader>
             <CardContent className="space-y-3">
               {editMode && (
-                <div className="border border-amber-300 bg-amber-50 dark:bg-amber-950/20 rounded-md p-3 flex gap-2">
-                  <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
-                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                <div className="border border-warning/40 bg-warning/10 rounded-md p-3 flex gap-2">
+                  <AlertTriangle className="h-4 w-4 text-warning flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-foreground">
                     Você está editando manualmente. A próxima análise do Cérebro irá adicionar regras ao final deste prompt, mas não apagará o que você escrever aqui.
                   </p>
                 </div>

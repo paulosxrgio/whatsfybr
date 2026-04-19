@@ -246,6 +246,35 @@ const AIAgentPage = () => {
   const [loading, setLoading] = useState(true);
   const [accountProvider, setAccountProvider] = useState<string | null>(null);
   const [accountModel, setAccountModel] = useState<string | null>(null);
+  const [trainingExamples, setTrainingExamples] = useState<TrainingExample[]>([]);
+  const [trainingLoading, setTrainingLoading] = useState(false);
+
+  const fetchTrainingExamples = async () => {
+    if (!currentStore) return;
+    setTrainingLoading(true);
+    const { data } = await supabase
+      .from("training_examples")
+      .select("id, customer_input, ideal_response, source, created_at")
+      .eq("store_id", currentStore.id)
+      .order("created_at", { ascending: false })
+      .limit(50);
+    setTrainingExamples((data as TrainingExample[]) || []);
+    setTrainingLoading(false);
+  };
+
+  useEffect(() => {
+    if (currentStore) fetchTrainingExamples();
+  }, [currentStore]);
+
+  const deleteExample = async (id: string) => {
+    const { error } = await supabase.from("training_examples").delete().eq("id", id);
+    if (error) {
+      toast.error("Erro ao excluir exemplo");
+      return;
+    }
+    setTrainingExamples((prev) => prev.filter((e) => e.id !== id));
+    toast.success("Exemplo excluído");
+  };
 
   useEffect(() => {
     if (!currentStore || !user) return;

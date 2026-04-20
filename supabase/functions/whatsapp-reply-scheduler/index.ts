@@ -123,6 +123,66 @@ serve(async (req) => {
 
         console.log(`Processando ${pendingMessages?.length || 0} mensagens consolidadas para ticket ${item.ticket_id}`);
 
+        // ── DETECTAR PEDIDO DE ATENDENTE HUMANO ──
+        const wantsHuman = consolidatedInput.toLowerCase().match(
+          /falar com (atendente|humano|pessoa|alguém|alguem|responsável|responsavel)|atendente (humano|real)|preciso de (atendimento|ajuda) (humana?|real)/i
+        );
+
+        if (wantsHuman) {
+          console.log(`[HUMAN HANDOFF] Cliente pediu atendente humano no ticket ${item.ticket_id}`);
+
+          // Pausar IA neste ticket
+          await supabase.from("tickets")
+            .update({ ai_paused: true, ai_paused_at: new Date().toISOString() })
+            .eq("id", item.ticket_id);
+
+          const handoffMessage = "Entendido! Vou chamar nossa equipe para te atender. Um momento. 💛";
+          const zapiBase = `https://api.z-api.io/instances/${settings.zapi_instance_id}/token/${settings.zapi_token}`;
+          const zapiHdr: Record<string, string> = {
+            "Content-Type": "application/json",
+            ...(settings.zapi_client_token ? { "Client-Token": settings.zapi_client_token } : {}),
+          };
+
+          try {
+            const sendRes = await fetch(`${zapiBase}/send-text`, {
+              method: "POST",
+              headers: zapiHdr,
+              body: JSON.stringify({ phone: ticket.customer_phone, message: handoffMessage }),
+            });
+            const sendData = await sendRes.json().catch(() => ({}));
+
+            await supabase.from("messages").insert({
+              ticket_id: item.ticket_id,
+              store_id: item.store_id,
+              direction: "outbound",
+              content: handoffMessage,
+              message_type: "text",
+              source: "ai",
+              zapi_message_id: sendData?.messageId || null,
+            });
+          } catch (e) {
+            console.error("[HUMAN HANDOFF] Erro ao enviar mensagem ao cliente:", e);
+          }
+
+          // Notificar Paulo
+          try {
+            await fetch(`${zapiBase}/send-text`, {
+              method: "POST",
+              headers: zapiHdr,
+              body: JSON.stringify({
+                phone: "553388756885",
+                message: `⚠️ *Atendimento Humano Solicitado*\n\nCliente: ${ticket.customer_name || "(sem nome)"}\nTelefone: ${ticket.customer_phone}\n\nA IA foi pausada. Acesse o painel para responder manualmente.`,
+              }),
+            });
+          } catch (e) {
+            console.error("[HUMAN HANDOFF] Erro ao notificar operador:", e);
+          }
+
+          await supabase.from("auto_reply_queue").update({ status: "done" }).eq("id", item.id);
+          processed++;
+          continue;
+        }
+
         // Buscar últimas 10 mensagens do ticket para contexto (otimização de custo)
         const { data: messageHistory } = await supabase
           .from("messages")

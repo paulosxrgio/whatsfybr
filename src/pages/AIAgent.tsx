@@ -511,7 +511,7 @@ const AIAgentPage = () => {
       </h1>
 
       <Tabs defaultValue="config" className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="config" className="gap-2">
             <Bot className="h-4 w-4" /> Configuração
           </TabsTrigger>
@@ -520,6 +520,14 @@ const AIAgentPage = () => {
             {trainingExamples.length > 0 && (
               <span className="ml-1 text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
                 {trainingExamples.length}
+              </span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="corpus" className="gap-2">
+            <Database className="h-4 w-4" /> Corpus
+            {corpusKnowledge && (
+              <span className="ml-1 text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
+                ✓
               </span>
             )}
           </TabsTrigger>

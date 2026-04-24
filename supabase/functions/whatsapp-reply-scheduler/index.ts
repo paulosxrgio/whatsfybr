@@ -125,7 +125,7 @@ serve(async (req) => {
 
         // ── DETECTAR PEDIDO DE ATENDENTE HUMANO ──
         const wantsHuman = consolidatedInput.toLowerCase().match(
-          /falar com (atendente|humano|pessoa|alguém|alguem|responsável|responsavel)|atendente (humano|real)|preciso de (atendimento|ajuda) (humana?|real)/i
+          /falar com (atendente|humano|pessoa|alguém|alguem|responsável|responsavel|gerente)|atendente (humano|real|de verdade)|me pass(a|e) (para|pro|pra) (atendente|humano|pessoa|alguém|alguem)|quero (falar|conversar) com (alguém|alguem|uma pessoa|humano|atendente)|n[ãa]o (quero|consigo|posso) (falar|conversar) com (rob[ôo]|ia|bot)|chama (um|uma) (atendente|pessoa|humano)|preciso de (atendimento|ajuda) (humana?|real)/i
         );
 
         if (wantsHuman) {

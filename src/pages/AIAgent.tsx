@@ -756,6 +756,111 @@ const AIAgentPage = () => {
             </CardContent>
           </Card>
         </TabsContent>
+
+        <TabsContent value="corpus" className="space-y-4 mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Database className="h-5 w-5 text-primary" /> Análise de Corpus
+              </CardTitle>
+              <CardDescription>
+                Alimente o Cérebro com um grande dataset de conversas reais (.txt). Ele extrai padrões,
+                técnicas e vocabulário ideal — esse conhecimento fica gravado permanentemente e é usado
+                como contexto em todas as análises diárias do Cérebro. Pode levar 3–5 minutos.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center gap-3">
+                <Input
+                  type="file"
+                  accept=".txt"
+                  disabled={corpusAnalyzing}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleCorpusFile(f);
+                  }}
+                  className="flex-1"
+                />
+              </div>
+
+              {corpusFileName && (
+                <div className="text-sm text-muted-foreground bg-muted/40 rounded-md p-3 flex items-center gap-2">
+                  <Upload className="h-4 w-4 text-primary" />
+                  <span><strong className="text-foreground">{corpusFileName}</strong> — {corpusPairsDetected.toLocaleString("pt-BR")} pares detectados</span>
+                </div>
+              )}
+
+              {corpusAnalyzing && (
+                <div className="space-y-2">
+                  <Progress value={corpusProgress.total ? (corpusProgress.current / corpusProgress.total) * 100 : 0} />
+                  <p className="text-xs text-muted-foreground flex items-center gap-2">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    {corpusProgress.message || "Processando..."}
+                  </p>
+                </div>
+              )}
+
+              <Button
+                onClick={runCorpusAnalysis}
+                disabled={!corpusText || corpusPairsDetected === 0 || corpusAnalyzing}
+                className="gap-2"
+              >
+                <Brain className="h-4 w-4" />
+                {corpusAnalyzing ? "Analisando..." : corpusKnowledge ? "Re-analisar (sobrescreve)" : "Analisar com o Cérebro"}
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Brain className="h-5 w-5 text-primary" /> Conhecimento Salvo
+                </CardTitle>
+                {corpusKnowledge && (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10 gap-1">
+                        <Trash2 className="h-3.5 w-3.5" /> Limpar
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Limpar conhecimento do Corpus?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          O Cérebro deixará de usar esse contexto nas análises diárias. Você poderá analisar um novo dataset depois.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction onClick={clearCorpusKnowledge}>Limpar</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
+              </div>
+              {corpusKnowledge && (
+                <CardDescription>
+                  {corpusPairsSaved.toLocaleString("pt-BR")} pares analisados
+                  {corpusAnalyzedAt && ` · ${format(new Date(corpusAnalyzedAt), "dd/MM/yyyy HH:mm")}`}
+                </CardDescription>
+              )}
+            </CardHeader>
+            <CardContent>
+              {!corpusKnowledge ? (
+                <p className="text-sm text-muted-foreground text-center py-8">
+                  Nenhuma análise de corpus realizada ainda. Faça upload de um dataset acima.
+                </p>
+              ) : (
+                <ScrollArea className="h-96 rounded-md border bg-muted/30 p-4">
+                  <pre className="text-xs whitespace-pre-wrap font-sans text-foreground">
+                    {corpusKnowledge}
+                  </pre>
+                </ScrollArea>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
     </div>
   );

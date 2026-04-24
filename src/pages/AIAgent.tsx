@@ -267,6 +267,117 @@ const AIAgentPage = () => {
   const [promptUpdatedAt, setPromptUpdatedAt] = useState<string | null>(null);
   const [forcingAnalysis, setForcingAnalysis] = useState(false);
 
+  // Corpus
+  const [corpusFileName, setCorpusFileName] = useState<string | null>(null);
+  const [corpusText, setCorpusText] = useState<string>("");
+  const [corpusPairsDetected, setCorpusPairsDetected] = useState(0);
+  const [corpusAnalyzing, setCorpusAnalyzing] = useState(false);
+  const [corpusProgress, setCorpusProgress] = useState({ current: 0, total: 0, message: "" });
+  const [corpusKnowledge, setCorpusKnowledge] = useState<string | null>(null);
+  const [corpusAnalyzedAt, setCorpusAnalyzedAt] = useState<string | null>(null);
+  const [corpusPairsSaved, setCorpusPairsSaved] = useState<number>(0);
+
+  const fetchCorpusKnowledge = async () => {
+    if (!currentStore) return;
+    const { data } = await supabase
+      .from("settings")
+      .select("cerebro_corpus_knowledge, corpus_analyzed_at, corpus_pairs_analyzed")
+      .eq("store_id", currentStore.id)
+      .maybeSingle();
+    setCorpusKnowledge((data as any)?.cerebro_corpus_knowledge || null);
+    setCorpusAnalyzedAt((data as any)?.corpus_analyzed_at || null);
+    setCorpusPairsSaved((data as any)?.corpus_pairs_analyzed || 0);
+  };
+
+  const handleCorpusFile = async (file: File) => {
+    const text = await file.text();
+    const matches = text.match(/^\[\d+\]\s*intent=/gim);
+    const detected = matches ? matches.length : 0;
+    setCorpusFileName(file.name);
+    setCorpusText(text);
+    setCorpusPairsDetected(detected);
+    if (detected === 0) toast.error("Nenhum par de conversa detectado no arquivo");
+    else toast.success(`${detected.toLocaleString("pt-BR")} pares detectados`);
+  };
+
+  const runCorpusAnalysis = async () => {
+    if (!currentStore || !corpusText) return;
+    setCorpusAnalyzing(true);
+    setCorpusProgress({ current: 0, total: 0, message: "Iniciando..." });
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-corpus`;
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+        },
+        body: JSON.stringify({ store_id: currentStore.id, corpus_text: corpusText }),
+      });
+
+      if (!resp.ok || !resp.body) {
+        const txt = await resp.text();
+        throw new Error(txt || "Falha ao iniciar análise");
+      }
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let streamDone = false;
+      while (!streamDone) {
+        const r = await reader.read();
+        if (r.done) break;
+        buffer += decoder.decode(r.value, { stream: true });
+        let idx;
+        while ((idx = buffer.indexOf("\n")) !== -1) {
+          let line = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 1);
+          if (line.endsWith("\r")) line = line.slice(0, -1);
+          if (!line.startsWith("data: ")) continue;
+          const json = line.slice(6).trim();
+          if (!json) continue;
+          try {
+            const evt = JSON.parse(json);
+            if (evt.type === "start") {
+              setCorpusProgress({ current: 0, total: evt.total_batches, message: `Analisando ${evt.total_pairs} pares em ${evt.total_batches} lotes...` });
+            } else if (evt.type === "progress") {
+              setCorpusProgress({ current: evt.current, total: evt.total, message: evt.message });
+            } else if (evt.type === "done") {
+              toast.success(`Análise concluída! ${evt.pairs_analyzed} pares processados.`);
+              streamDone = true;
+              await fetchCorpusKnowledge();
+            } else if (evt.type === "error") {
+              toast.error(`Erro: ${evt.error}`);
+              streamDone = true;
+            }
+          } catch { /* skip */ }
+        }
+      }
+    } catch (e: any) {
+      toast.error(`Erro: ${e?.message || "desconhecido"}`);
+    } finally {
+      setCorpusAnalyzing(false);
+      setCorpusProgress({ current: 0, total: 0, message: "" });
+    }
+  };
+
+  const clearCorpusKnowledge = async () => {
+    if (!currentStore) return;
+    const { error } = await supabase
+      .from("settings")
+      .update({ cerebro_corpus_knowledge: null, corpus_analyzed_at: null, corpus_pairs_analyzed: 0 })
+      .eq("store_id", currentStore.id);
+    if (error) toast.error("Erro ao limpar");
+    else {
+      toast.success("Conhecimento limpo");
+      setCorpusKnowledge(null);
+      setCorpusAnalyzedAt(null);
+      setCorpusPairsSaved(0);
+    }
+  };
+
   const fetchTrainingExamples = async () => {
     if (!currentStore) return;
     setTrainingLoading(true);

@@ -94,15 +94,22 @@ serve(async (req) => {
       }
     }
 
-    // 3. Buscar config de IA da loja (provider/keys)
+    // 3. Buscar config de IA da loja (provider/keys + corpus knowledge)
     const { data: settings } = await supabase
       .from("settings")
-      .select("ai_provider, ai_model, openai_api_key, anthropic_api_key, ai_system_prompt, zapi_instance_id, zapi_token, zapi_client_token, cerebro_memory")
+      .select("ai_provider, ai_model, openai_api_key, anthropic_api_key, ai_system_prompt, zapi_instance_id, zapi_token, zapi_client_token, cerebro_memory, cerebro_corpus_knowledge, corpus_pairs_analyzed")
       .eq("store_id", storeId)
       .maybeSingle();
 
     const activeMemory = (settings as any)?.cerebro_memory || CEREBRO_MEMORY;
-    const SUPERVISOR_SYSTEM_PROMPT = buildSupervisorPrompt(activeMemory);
+
+    const corpusKnowledge = (settings as any)?.cerebro_corpus_knowledge as string | null;
+    const corpusPairs = (settings as any)?.corpus_pairs_analyzed as number | null;
+    const corpusContext = corpusKnowledge
+      ? `\n\n━━━━ CONHECIMENTO EXTRAÍDO DE ${corpusPairs || "milhares de"} CONVERSAS REAIS ━━━━\n${corpusKnowledge}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nUse este conhecimento como contexto estratégico ao analisar as conversas do dia e propor regras.\n\n`
+      : "";
+
+    const SUPERVISOR_SYSTEM_PROMPT = corpusContext + buildSupervisorPrompt(activeMemory);
 
     // 4. Enviar para IA analisar — preferir Lovable AI Gateway
     const lovableKey = Deno.env.get("LOVABLE_API_KEY");

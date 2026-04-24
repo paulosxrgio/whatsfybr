@@ -267,7 +267,10 @@ export type Database = {
           ai_response_delay: number | null
           ai_system_prompt: string | null
           anthropic_api_key: string | null
+          cerebro_corpus_knowledge: string | null
           cerebro_memory: string | null
+          corpus_analyzed_at: string | null
+          corpus_pairs_analyzed: number | null
           created_at: string | null
           id: string
           notify_order_fulfilled: boolean | null
@@ -287,7 +290,10 @@ export type Database = {
           ai_response_delay?: number | null
           ai_system_prompt?: string | null
           anthropic_api_key?: string | null
+          cerebro_corpus_knowledge?: string | null
           cerebro_memory?: string | null
+          corpus_analyzed_at?: string | null
+          corpus_pairs_analyzed?: number | null
           created_at?: string | null
           id?: string
           notify_order_fulfilled?: boolean | null
@@ -307,7 +313,10 @@ export type Database = {
           ai_response_delay?: number | null
           ai_system_prompt?: string | null
           anthropic_api_key?: string | null
+          cerebro_corpus_knowledge?: string | null
           cerebro_memory?: string | null
+          corpus_analyzed_at?: string | null
+          corpus_pairs_analyzed?: number | null
           created_at?: string | null
           id?: string
           notify_order_fulfilled?: boolean | null

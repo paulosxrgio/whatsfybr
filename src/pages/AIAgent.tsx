@@ -4,12 +4,18 @@ import { useStore } from "@/contexts/StoreContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { Bot, Save, TrendingUp, ExternalLink, GraduationCap, Trash2, Brain, Play, AlertTriangle } from "lucide-react";
+import { Bot, Save, TrendingUp, ExternalLink, GraduationCap, Trash2, Brain, Play, AlertTriangle, Database, Upload, Loader2 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Progress } from "@/components/ui/progress";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
@@ -261,6 +267,117 @@ const AIAgentPage = () => {
   const [promptUpdatedAt, setPromptUpdatedAt] = useState<string | null>(null);
   const [forcingAnalysis, setForcingAnalysis] = useState(false);
 
+  // Corpus
+  const [corpusFileName, setCorpusFileName] = useState<string | null>(null);
+  const [corpusText, setCorpusText] = useState<string>("");
+  const [corpusPairsDetected, setCorpusPairsDetected] = useState(0);
+  const [corpusAnalyzing, setCorpusAnalyzing] = useState(false);
+  const [corpusProgress, setCorpusProgress] = useState({ current: 0, total: 0, message: "" });
+  const [corpusKnowledge, setCorpusKnowledge] = useState<string | null>(null);
+  const [corpusAnalyzedAt, setCorpusAnalyzedAt] = useState<string | null>(null);
+  const [corpusPairsSaved, setCorpusPairsSaved] = useState<number>(0);
+
+  const fetchCorpusKnowledge = async () => {
+    if (!currentStore) return;
+    const { data } = await supabase
+      .from("settings")
+      .select("cerebro_corpus_knowledge, corpus_analyzed_at, corpus_pairs_analyzed")
+      .eq("store_id", currentStore.id)
+      .maybeSingle();
+    setCorpusKnowledge((data as any)?.cerebro_corpus_knowledge || null);
+    setCorpusAnalyzedAt((data as any)?.corpus_analyzed_at || null);
+    setCorpusPairsSaved((data as any)?.corpus_pairs_analyzed || 0);
+  };
+
+  const handleCorpusFile = async (file: File) => {
+    const text = await file.text();
+    const matches = text.match(/^\[\d+\]\s*intent=/gim);
+    const detected = matches ? matches.length : 0;
+    setCorpusFileName(file.name);
+    setCorpusText(text);
+    setCorpusPairsDetected(detected);
+    if (detected === 0) toast.error("Nenhum par de conversa detectado no arquivo");
+    else toast.success(`${detected.toLocaleString("pt-BR")} pares detectados`);
+  };
+
+  const runCorpusAnalysis = async () => {
+    if (!currentStore || !corpusText) return;
+    setCorpusAnalyzing(true);
+    setCorpusProgress({ current: 0, total: 0, message: "Iniciando..." });
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-corpus`;
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+        },
+        body: JSON.stringify({ store_id: currentStore.id, corpus_text: corpusText }),
+      });
+
+      if (!resp.ok || !resp.body) {
+        const txt = await resp.text();
+        throw new Error(txt || "Falha ao iniciar análise");
+      }
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let streamDone = false;
+      while (!streamDone) {
+        const r = await reader.read();
+        if (r.done) break;
+        buffer += decoder.decode(r.value, { stream: true });
+        let idx;
+        while ((idx = buffer.indexOf("\n")) !== -1) {
+          let line = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 1);
+          if (line.endsWith("\r")) line = line.slice(0, -1);
+          if (!line.startsWith("data: ")) continue;
+          const json = line.slice(6).trim();
+          if (!json) continue;
+          try {
+            const evt = JSON.parse(json);
+            if (evt.type === "start") {
+              setCorpusProgress({ current: 0, total: evt.total_batches, message: `Analisando ${evt.total_pairs} pares em ${evt.total_batches} lotes...` });
+            } else if (evt.type === "progress") {
+              setCorpusProgress({ current: evt.current, total: evt.total, message: evt.message });
+            } else if (evt.type === "done") {
+              toast.success(`Análise concluída! ${evt.pairs_analyzed} pares processados.`);
+              streamDone = true;
+              await fetchCorpusKnowledge();
+            } else if (evt.type === "error") {
+              toast.error(`Erro: ${evt.error}`);
+              streamDone = true;
+            }
+          } catch { /* skip */ }
+        }
+      }
+    } catch (e: any) {
+      toast.error(`Erro: ${e?.message || "desconhecido"}`);
+    } finally {
+      setCorpusAnalyzing(false);
+      setCorpusProgress({ current: 0, total: 0, message: "" });
+    }
+  };
+
+  const clearCorpusKnowledge = async () => {
+    if (!currentStore) return;
+    const { error } = await supabase
+      .from("settings")
+      .update({ cerebro_corpus_knowledge: null, corpus_analyzed_at: null, corpus_pairs_analyzed: 0 })
+      .eq("store_id", currentStore.id);
+    if (error) toast.error("Erro ao limpar");
+    else {
+      toast.success("Conhecimento limpo");
+      setCorpusKnowledge(null);
+      setCorpusAnalyzedAt(null);
+      setCorpusPairsSaved(0);
+    }
+  };
+
   const fetchTrainingExamples = async () => {
     if (!currentStore) return;
     setTrainingLoading(true);
@@ -290,6 +407,7 @@ const AIAgentPage = () => {
     if (currentStore) {
       fetchTrainingExamples();
       fetchLastReport();
+      fetchCorpusKnowledge();
     }
   }, [currentStore]);
 
@@ -393,7 +511,7 @@ const AIAgentPage = () => {
       </h1>
 
       <Tabs defaultValue="config" className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="config" className="gap-2">
             <Bot className="h-4 w-4" /> Configuração
           </TabsTrigger>
@@ -402,6 +520,14 @@ const AIAgentPage = () => {
             {trainingExamples.length > 0 && (
               <span className="ml-1 text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
                 {trainingExamples.length}
+              </span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="corpus" className="gap-2">
+            <Database className="h-4 w-4" /> Corpus
+            {corpusKnowledge && (
+              <span className="ml-1 text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
+                ✓
               </span>
             )}
           </TabsTrigger>
@@ -626,6 +752,111 @@ const AIAgentPage = () => {
                     </div>
                   ))}
                 </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="corpus" className="space-y-4 mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Database className="h-5 w-5 text-primary" /> Análise de Corpus
+              </CardTitle>
+              <CardDescription>
+                Alimente o Cérebro com um grande dataset de conversas reais (.txt). Ele extrai padrões,
+                técnicas e vocabulário ideal — esse conhecimento fica gravado permanentemente e é usado
+                como contexto em todas as análises diárias do Cérebro. Pode levar 3–5 minutos.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center gap-3">
+                <Input
+                  type="file"
+                  accept=".txt"
+                  disabled={corpusAnalyzing}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleCorpusFile(f);
+                  }}
+                  className="flex-1"
+                />
+              </div>
+
+              {corpusFileName && (
+                <div className="text-sm text-muted-foreground bg-muted/40 rounded-md p-3 flex items-center gap-2">
+                  <Upload className="h-4 w-4 text-primary" />
+                  <span><strong className="text-foreground">{corpusFileName}</strong> — {corpusPairsDetected.toLocaleString("pt-BR")} pares detectados</span>
+                </div>
+              )}
+
+              {corpusAnalyzing && (
+                <div className="space-y-2">
+                  <Progress value={corpusProgress.total ? (corpusProgress.current / corpusProgress.total) * 100 : 0} />
+                  <p className="text-xs text-muted-foreground flex items-center gap-2">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    {corpusProgress.message || "Processando..."}
+                  </p>
+                </div>
+              )}
+
+              <Button
+                onClick={runCorpusAnalysis}
+                disabled={!corpusText || corpusPairsDetected === 0 || corpusAnalyzing}
+                className="gap-2"
+              >
+                <Brain className="h-4 w-4" />
+                {corpusAnalyzing ? "Analisando..." : corpusKnowledge ? "Re-analisar (sobrescreve)" : "Analisar com o Cérebro"}
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Brain className="h-5 w-5 text-primary" /> Conhecimento Salvo
+                </CardTitle>
+                {corpusKnowledge && (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10 gap-1">
+                        <Trash2 className="h-3.5 w-3.5" /> Limpar
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Limpar conhecimento do Corpus?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          O Cérebro deixará de usar esse contexto nas análises diárias. Você poderá analisar um novo dataset depois.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction onClick={clearCorpusKnowledge}>Limpar</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
+              </div>
+              {corpusKnowledge && (
+                <CardDescription>
+                  {corpusPairsSaved.toLocaleString("pt-BR")} pares analisados
+                  {corpusAnalyzedAt && ` · ${format(new Date(corpusAnalyzedAt), "dd/MM/yyyy HH:mm")}`}
+                </CardDescription>
+              )}
+            </CardHeader>
+            <CardContent>
+              {!corpusKnowledge ? (
+                <p className="text-sm text-muted-foreground text-center py-8">
+                  Nenhuma análise de corpus realizada ainda. Faça upload de um dataset acima.
+                </p>
+              ) : (
+                <ScrollArea className="h-96 rounded-md border bg-muted/30 p-4">
+                  <pre className="text-xs whitespace-pre-wrap font-sans text-foreground">
+                    {corpusKnowledge}
+                  </pre>
+                </ScrollArea>
               )}
             </CardContent>
           </Card>

@@ -125,7 +125,7 @@ serve(async (req) => {
 
         // ── DETECTAR PEDIDO DE ATENDENTE HUMANO ──
         const wantsHuman = consolidatedInput.toLowerCase().match(
-          /falar com (atendente|humano|pessoa|alguém|alguem|responsável|responsavel)|atendente (humano|real)|preciso de (atendimento|ajuda) (humana?|real)/i
+          /falar com (atendente|humano|pessoa|alguém|alguem|responsável|responsavel|gerente)|atendente (humano|real|de verdade)|me pass(a|e) (para|pro|pra) (atendente|humano|pessoa|alguém|alguem)|quero (falar|conversar) com (alguém|alguem|uma pessoa|humano|atendente)|n[ãa]o (quero|consigo|posso) (falar|conversar) com (rob[ôo]|ia|bot)|chama (um|uma) (atendente|pessoa|humano)|preciso de (atendimento|ajuda) (humana?|real)/i
         );
 
         if (wantsHuman) {
@@ -675,6 +675,27 @@ Se o pedido já foi enviado E o cliente quer trocar cor ou tamanho:
 - Se o cliente perguntar se vai chegar na cor certa, diga: "Estamos verificando com nossa equipe! Assim que confirmar, te aviso. 💛"
 
 A equipe decide se consegue ou não — Sophia apenas registra e tranquiliza.
+
+━━━━━━━━━━━━━━━━━━━━━━
+CLIENTE QUE COMPROU EM OUTRA LOJA
+━━━━━━━━━━━━━━━━━━━━━━
+
+Se após 2 tentativas não encontrar o pedido E o cliente mostrar comprovante
+de outra loja (Axion Digital, Pix do Milhão, Agate Ltda, etc.) ou domínio
+diferente de adorisse.com.br:
+
+Responda UMA ÚNICA VEZ:
+"[nome do cliente], identificamos que sua compra foi realizada em outra loja —
+não temos registros dela na ${storeName}. Para rastreamento e suporte,
+entre em contato diretamente com a loja onde comprou.
+Se futuramente comprar aqui, estaremos à disposição! 💛"
+
+Depois dessa resposta: NÃO responda mais sobre o mesmo assunto.
+Se cliente insistir com o mesmo tema, responda apenas:
+"Como mencionei, esse pedido não está em nosso sistema.
+Para mais ajuda, entre em contato com a loja onde comprou. 💛"
+
+NUNCA fique em loop repetindo a mesma explicação múltiplas vezes.
 
 ━━━━━━━━━━━━━━━━━━━━━━
 PERGUNTAS SEM PEDIDO

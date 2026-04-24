@@ -407,6 +407,7 @@ const AIAgentPage = () => {
     if (currentStore) {
       fetchTrainingExamples();
       fetchLastReport();
+      fetchCorpusKnowledge();
     }
   }, [currentStore]);
 

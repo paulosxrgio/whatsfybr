@@ -685,7 +685,7 @@ de outra loja (Axion Digital, Pix do Milhão, Agate Ltda, etc.) ou domínio
 diferente de adorisse.com.br:
 
 Responda UMA ÚNICA VEZ:
-"${"${customerName}"}, identificamos que sua compra foi realizada em outra loja —
+"[nome do cliente], identificamos que sua compra foi realizada em outra loja —
 não temos registros dela na ${storeName}. Para rastreamento e suporte,
 entre em contato diretamente com a loja onde comprou.
 Se futuramente comprar aqui, estaremos à disposição! 💛"

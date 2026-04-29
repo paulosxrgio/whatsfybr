@@ -51,8 +51,9 @@ serve(async (req) => {
     const now = Date.now();
     const dayAgo = new Date(now - 24 * 3600 * 1000).toISOString();
 
+    // 1) Filtros básicos em memória
+    const candidates: typeof tickets = [];
     for (const t of tickets) {
-      // Filtros básicos
       if (!t.customer_phone) { skipped.push({ ticket_id: t.id, reason: "no_phone" }); continue; }
       const cleaned = String(t.customer_phone).replace(/\D/g, "");
       if (!cleaned || cleaned === "0") { skipped.push({ ticket_id: t.id, reason: "invalid_phone" }); continue; }
@@ -63,41 +64,53 @@ serve(async (req) => {
       if (t.recovery_message_sent_at && new Date(t.recovery_message_sent_at).getTime() > now - 24 * 3600 * 1000) {
         skipped.push({ ticket_id: t.id, reason: "recovery_already_sent_24h" }); continue;
       }
+      candidates.push(t);
+    }
 
-      // Já existe item pendente?
-      const { data: existing } = await supabase
+    const candidateIds = candidates.map((t) => t.id);
+
+    // 2) Pré-carregamento em BATCH (3 queries no total, sem N+1)
+    const [queuedRes, allMsgsRes, deliveredOutRes] = await Promise.all([
+      supabase
         .from("recovery_reply_queue")
-        .select("id")
-        .eq("ticket_id", t.id)
+        .select("ticket_id")
+        .eq("store_id", store_id)
         .in("status", ["pending", "processing"])
-        .limit(1);
-      if (existing && existing.length > 0) { skipped.push({ ticket_id: t.id, reason: "already_queued" }); continue; }
-
-      // Última mensagem precisa ser inbound
-      const { data: lastMsg } = await supabase
+        .in("ticket_id", candidateIds),
+      supabase
         .from("messages")
-        .select("direction, created_at")
-        .eq("ticket_id", t.id)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (!lastMsg) { skipped.push({ ticket_id: t.id, reason: "no_messages" }); continue; }
-      if (lastMsg.direction !== "inbound") { skipped.push({ ticket_id: t.id, reason: "last_message_not_inbound" }); continue; }
-
-      // Sem outbound CONFIRMADAMENTE ENTREGUE nas últimas 24h.
-      // delivery_status = NULL, 'sent_to_zapi' ou 'failed' NÃO contam como entregue
-      // (Z-API aceitou mas WhatsApp pode ter rejeitado ou ainda não confirmou).
-      const { data: recentOut } = await supabase
+        .select("ticket_id, direction, created_at")
+        .eq("store_id", store_id)
+        .in("ticket_id", candidateIds)
+        .order("created_at", { ascending: false }),
+      supabase
         .from("messages")
-        .select("id")
-        .eq("ticket_id", t.id)
+        .select("ticket_id")
+        .eq("store_id", store_id)
         .eq("direction", "outbound")
         .gt("created_at", dayAgo)
         .in("delivery_status", ["sent", "delivered", "received", "read"])
-        .limit(1);
-      if (recentOut && recentOut.length > 0) { skipped.push({ ticket_id: t.id, reason: "outbound_delivered_recent_24h" }); continue; }
+        .in("ticket_id", candidateIds),
+    ]);
 
-      eligible.push({ ticket_id: t.id, customer_phone: cleaned });
+    const alreadyQueued = new Set((queuedRes.data || []).map((r: any) => r.ticket_id));
+    const recentlyDelivered = new Set((deliveredOutRes.data || []).map((r: any) => r.ticket_id));
+    const lastDirectionByTicket = new Map<string, string>();
+    for (const m of allMsgsRes.data || []) {
+      if (!lastDirectionByTicket.has(m.ticket_id)) {
+        lastDirectionByTicket.set(m.ticket_id, m.direction);
+      }
+    }
+
+    // 3) Aplicar filtros em memória
+    for (const t of candidates) {
+      if (alreadyQueued.has(t.id)) { skipped.push({ ticket_id: t.id, reason: "already_queued" }); continue; }
+      const lastDir = lastDirectionByTicket.get(t.id);
+      if (!lastDir) { skipped.push({ ticket_id: t.id, reason: "no_messages" }); continue; }
+      if (lastDir !== "inbound") { skipped.push({ ticket_id: t.id, reason: "last_message_not_inbound" }); continue; }
+      if (recentlyDelivered.has(t.id)) { skipped.push({ ticket_id: t.id, reason: "outbound_delivered_recent_24h" }); continue; }
+
+      eligible.push({ ticket_id: t.id, customer_phone: String(t.customer_phone).replace(/\D/g, "") });
       if (eligible.length >= max_clients) break;
     }
 

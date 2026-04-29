@@ -116,7 +116,9 @@ serve(async (req) => {
       return new Response(JSON.stringify({ ok: true, skipped: "not_received_callback" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const phone = body.phone ? String(body.phone).replace(/\D/g, "") : "";
+    const rawPhone = body.phone ? String(body.phone) : "";
+    const chatLid = typeof body.chatLid === "string" && body.chatLid.includes("@lid") ? body.chatLid : null;
+    const phone = rawPhone.includes("@lid") ? rawPhone : rawPhone.replace(/\D/g, "");
     const senderName = body.senderName || body.chatName || "";
     const messageText = body.text?.message || "";
     const zapiMessageId = body.messageId || null;
@@ -176,6 +178,7 @@ serve(async (req) => {
         .update({
           last_message_at: new Date().toISOString(),
           customer_name: senderName || existingTicket.customer_name,
+          ...(chatLid ? { customer_lid: chatLid } : {}),
         })
         .eq("id", ticketId);
       console.log(`Ticket existente reutilizado: ${ticketId} para ${phone}`);
@@ -186,6 +189,7 @@ serve(async (req) => {
           store_id: storeId,
           customer_phone: phone,
           customer_name: senderName || "",
+          customer_lid: chatLid,
           status: "open",
           sentiment: "neutral",
           last_message_at: new Date().toISOString(),
@@ -267,6 +271,7 @@ serve(async (req) => {
       message_type: messageType,
       media_url: mediaUrl,
       zapi_message_id: zapiMessageId,
+      chat_lid: chatLid,
     }).select("id").single();
 
     const savedMessageId = savedMessage?.id || null;

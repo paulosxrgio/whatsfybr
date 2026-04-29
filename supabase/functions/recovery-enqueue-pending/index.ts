@@ -84,15 +84,18 @@ serve(async (req) => {
       if (!lastMsg) { skipped.push({ ticket_id: t.id, reason: "no_messages" }); continue; }
       if (lastMsg.direction !== "inbound") { skipped.push({ ticket_id: t.id, reason: "last_message_not_inbound" }); continue; }
 
-      // Sem outbound nas últimas 24h
+      // Sem outbound CONFIRMADAMENTE ENTREGUE nas últimas 24h.
+      // delivery_status = NULL, 'sent_to_zapi' ou 'failed' NÃO contam como entregue
+      // (Z-API aceitou mas WhatsApp pode ter rejeitado ou ainda não confirmou).
       const { data: recentOut } = await supabase
         .from("messages")
         .select("id")
         .eq("ticket_id", t.id)
         .eq("direction", "outbound")
         .gt("created_at", dayAgo)
+        .in("delivery_status", ["sent", "delivered", "received", "read"])
         .limit(1);
-      if (recentOut && recentOut.length > 0) { skipped.push({ ticket_id: t.id, reason: "outbound_recent_24h" }); continue; }
+      if (recentOut && recentOut.length > 0) { skipped.push({ ticket_id: t.id, reason: "outbound_delivered_recent_24h" }); continue; }
 
       eligible.push({ ticket_id: t.id, customer_phone: cleaned });
       if (eligible.length >= max_clients) break;

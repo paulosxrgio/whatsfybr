@@ -164,50 +164,34 @@ serve(async (req) => {
           const handoffMessage = "Entendido! Vou chamar nossa equipe para te atender. Um momento. 💛";
 
           try {
-            const cleanHandoffPhone = ticket.customer_phone.replace(/\D/g, "");
-            const sendResult = await sendZapiText({
-              instanceId: settings.zapi_instance_id,
-              token: settings.zapi_token,
-              clientToken: settings.zapi_client_token,
-              phone: cleanHandoffPhone,
-              recipientLid: ticket.customer_lid,
+            const handoffResult = await callSendWhatsappReply({
+              ticket_id: item.ticket_id,
+              store_id: item.store_id,
               message: handoffMessage,
-              origin: "ai_handoff",
+              source: "ai_handoff",
             });
-
-            if (!sendResult.ok) {
-              console.error(`[HUMAN HANDOFF FAIL] ${sendResult.error}`, sendResult.zapi_response);
-              // NÃO inserir em messages — mensagem não foi entregue
+            if (!handoffResult.ok) {
+              console.error(`[HUMAN HANDOFF FAIL]`, handoffResult);
             } else {
-              const { data: savedHandoff } = await supabase.from("messages").insert({
-                ticket_id: item.ticket_id,
-                store_id: item.store_id,
-                direction: "outbound",
-                content: handoffMessage,
-                message_type: "text",
-                source: "ai",
-                zapi_message_id: sendResult.zapi_message_id,
-                zapi_zaap_id: sendResult.zapi_zaap_id,
-                zapi_id: sendResult.zapi_id,
-                zapi_response: sendResult.zapi_response,
-                delivery_status: "sent_to_zapi",
-                delivery_updated_at: new Date().toISOString(),
-              }).select("id").single();
-              console.log("[MESSAGE SAVED]", JSON.stringify({ id: savedHandoff?.id, origin: "ai_handoff", zapi_message_id: sendResult.zapi_message_id, zapi_zaap_id: sendResult.zapi_zaap_id, zapi_id: sendResult.zapi_id }));
+              console.log("[HUMAN HANDOFF SENT]", JSON.stringify({ zapi_message_id: handoffResult.zapi_message_id }));
             }
           } catch (e) {
             console.error("[HUMAN HANDOFF] Erro ao enviar mensagem ao cliente:", e);
           }
 
-          // Notificar Paulo
+          // Notificar operador (Paulo) — alerta interno enviado direto.
           try {
-            await sendZapiText({
-              instanceId: settings.zapi_instance_id,
-              token: settings.zapi_token,
-              clientToken: settings.zapi_client_token,
-              phone: "553388756885",
-              message: `⚠️ *Atendimento Humano Solicitado*\n\nCliente: ${ticket.customer_name || "(sem nome)"}\nTelefone: ${ticket.customer_phone}\n\nA IA foi pausada. Acesse o painel para responder manualmente.`,
-              origin: "supervisor_alert",
+            const alertUrl = `https://api.z-api.io/instances/${settings.zapi_instance_id}/token/${settings.zapi_token}/send-text`;
+            await fetch(alertUrl, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                ...(settings.zapi_client_token ? { "Client-Token": settings.zapi_client_token } : {}),
+              },
+              body: JSON.stringify({
+                phone: "553388756885",
+                message: `⚠️ *Atendimento Humano Solicitado*\n\nCliente: ${ticket.customer_name || "(sem nome)"}\nTelefone: ${ticket.customer_phone}\n\nA IA foi pausada. Acesse o painel para responder manualmente.`,
+              }),
             });
           } catch (e) {
             console.error("[HUMAN HANDOFF] Erro ao notificar operador:", e);

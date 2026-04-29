@@ -916,7 +916,10 @@ ${formattedHistory}`;
 
           // 2) Se não achou por telefone, tenta busca direta no Shopify por email/número de pedido
           if (orders.length === 0 && (savedEmail || orderNumMatch)) {
-            const shopifyUrl = settings.shopify_store_url?.replace(/\/$/, "");
+            let shopifyUrl = settings.shopify_store_url?.replace(/\/$/, "") || "";
+            if (shopifyUrl && !/^https?:\/\//i.test(shopifyUrl)) {
+              shopifyUrl = `https://${shopifyUrl}`;
+            }
             const shopifyToken = settings.shopify_client_secret;
             if (shopifyUrl && shopifyToken) {
               const shopifyHeaders = { "X-Shopify-Access-Token": shopifyToken, "Content-Type": "application/json" };

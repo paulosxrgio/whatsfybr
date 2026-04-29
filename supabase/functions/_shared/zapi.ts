@@ -5,6 +5,7 @@ type SendZapiTextParams = {
   token: string;
   clientToken?: string | null;
   phone: string;
+  recipientLid?: string | null;
   message: string;
   origin: ZapiSendOrigin;
 };
@@ -45,16 +46,17 @@ export async function getZapiInstanceStatus(instanceId: string, token: string, c
 }
 
 export async function sendZapiText(params: SendZapiTextParams): Promise<ZapiSendResult> {
-  const { instanceId, token, clientToken, phone, message, origin } = params;
-  console.log("[SEND DEBUG]", JSON.stringify({ origin, phone, messageLength: message.length, hasClientToken: Boolean(clientToken) }));
+  const { instanceId, token, clientToken, phone, recipientLid, message, origin } = params;
+  const recipient = recipientLid?.includes("@lid") ? recipientLid : phone;
+  console.log("[SEND DEBUG]", JSON.stringify({ origin, phone, recipient, usingLid: recipient !== phone, messageLength: message.length, hasClientToken: Boolean(clientToken) }));
 
   const status = await getZapiInstanceStatus(instanceId, token, clientToken);
   if (!status.ok || status.connected === false || status.smartphoneConnected === false) {
     return { ok: false, error: "Z-API desconectada", zapi_response: status.body };
   }
 
-  const payload = { phone, message };
-  console.log("[ZAPI SEND PAYLOAD]", JSON.stringify({ origin, phone, messageLength: message.length }));
+  const payload = { phone: recipient, message };
+  console.log("[ZAPI SEND PAYLOAD]", JSON.stringify({ origin, phone: recipient, originalPhone: phone, usingLid: recipient !== phone, messageLength: message.length }));
 
   const res = await fetch(`https://api.z-api.io/instances/${instanceId}/token/${token}/send-text`, {
     method: "POST",

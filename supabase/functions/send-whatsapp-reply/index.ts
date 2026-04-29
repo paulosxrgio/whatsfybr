@@ -32,7 +32,7 @@ serve(async (req) => {
 
     const { data: ticket } = await supabase
       .from("tickets")
-      .select("customer_phone")
+      .select("customer_phone, customer_lid")
       .eq("id", ticket_id)
       .single();
     if (!ticket) return json({ ok: false, error: "Ticket não encontrado" }, 200);
@@ -55,6 +55,7 @@ serve(async (req) => {
       token: settings.zapi_token,
       clientToken: settings.zapi_client_token,
       phone: cleanPhone,
+      recipientLid: ticket.customer_lid,
       message,
       origin: "manual",
     });

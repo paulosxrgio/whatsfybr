@@ -39,6 +39,22 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
+    // Ignorar callbacks que NÃO são mensagem real do cliente
+    const eventType = typeof body.type === "string" ? body.type : "";
+    const nonMessageCallbacks = new Set([
+      "PresenceChatCallback",
+      "ChatPresenceCallback",
+      "MessageSendStatusCallback",
+      "ConnectedCallback",
+      "DisconnectedCallback",
+    ]);
+    if (nonMessageCallbacks.has(eventType)) {
+      console.log("[INBOUND SKIPPED]", JSON.stringify({ reason: eventType }));
+      return new Response(JSON.stringify({ ok: true, skipped: eventType }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (body.type === "DeliveryCallback" || body.type === "MessageStatusCallback") {
       const deliveryError = typeof body.error === "string" ? body.error.trim() : "";
       const zapiIds = [body.id, body.zaapId, body.messageId, ...(Array.isArray(body.ids) ? body.ids : [])]

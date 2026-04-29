@@ -154,6 +154,7 @@ serve(async (req) => {
               token: settings.zapi_token,
               clientToken: settings.zapi_client_token,
               phone: cleanHandoffPhone,
+              recipientLid: ticket.customer_lid,
               message: handoffMessage,
               origin: "ai_handoff",
             });
@@ -1181,6 +1182,7 @@ ${sentimentInstruction}
           token: settings.zapi_token,
           clientToken: settings.zapi_client_token,
           phone: cleanPhone,
+          recipientLid: ticket.customer_lid,
           message: responseText,
           origin: "ai_scheduler",
         });

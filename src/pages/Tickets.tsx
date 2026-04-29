@@ -54,6 +54,8 @@ type Message = {
   media_url: string | null;
   created_at: string | null;
   zapi_message_id?: string | null;
+  delivery_status?: string | null;
+  delivery_error?: string | null;
 };
 
 type CustomerMemory = {
@@ -84,6 +86,14 @@ const sentimentEmoji: Record<string, string> = {
   neutral: "😐",
   frustrated: "😤",
   angry: "😡",
+};
+
+const deliveryStatusLabel: Record<string, string> = {
+  sent_to_zapi: "Enviada para Z-API",
+  sent: "Enviada",
+  received: "Recebida",
+  read: "Lida",
+  failed: "Falhou",
 };
 
 const TicketsPage = () => {
@@ -813,7 +823,14 @@ const TicketsPage = () => {
                               <span className="text-xs text-gray-400">
                                 {msg.created_at && format(new Date(msg.created_at), "HH:mm")}
                               </span>
-                              {msg.zapi_message_id ? (
+                              <span className={cn("text-xs", msg.delivery_status === "failed" ? "text-red-500" : "text-gray-400") }>
+                                {msg.delivery_status === "failed"
+                                  ? `Falhou: ${msg.delivery_error || "erro na entrega"}`
+                                  : deliveryStatusLabel[msg.delivery_status || "sent_to_zapi"] || "Enviada"}
+                              </span>
+                              {msg.delivery_status === "failed" ? (
+                                <AlertTriangle className="w-3 h-3 text-red-500" />
+                              ) : msg.zapi_message_id ? (
                                 <CheckCheck className="w-3 h-3 text-blue-500" />
                               ) : (
                                 <AlertTriangle className="w-3 h-3 text-red-500" />

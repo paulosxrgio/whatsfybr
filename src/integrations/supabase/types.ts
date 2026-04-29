@@ -146,6 +146,10 @@ export type Database = {
         Row: {
           content: string | null
           created_at: string | null
+          delivery_callback_payload: Json | null
+          delivery_error: string | null
+          delivery_status: string | null
+          delivery_updated_at: string | null
           direction: string
           id: string
           media_url: string | null
@@ -153,11 +157,18 @@ export type Database = {
           source: string | null
           store_id: string
           ticket_id: string
+          zapi_id: string | null
           zapi_message_id: string | null
+          zapi_response: Json | null
+          zapi_zaap_id: string | null
         }
         Insert: {
           content?: string | null
           created_at?: string | null
+          delivery_callback_payload?: Json | null
+          delivery_error?: string | null
+          delivery_status?: string | null
+          delivery_updated_at?: string | null
           direction: string
           id?: string
           media_url?: string | null
@@ -165,11 +176,18 @@ export type Database = {
           source?: string | null
           store_id: string
           ticket_id: string
+          zapi_id?: string | null
           zapi_message_id?: string | null
+          zapi_response?: Json | null
+          zapi_zaap_id?: string | null
         }
         Update: {
           content?: string | null
           created_at?: string | null
+          delivery_callback_payload?: Json | null
+          delivery_error?: string | null
+          delivery_status?: string | null
+          delivery_updated_at?: string | null
           direction?: string
           id?: string
           media_url?: string | null
@@ -177,7 +195,10 @@ export type Database = {
           source?: string | null
           store_id?: string
           ticket_id?: string
+          zapi_id?: string | null
           zapi_message_id?: string | null
+          zapi_response?: Json | null
+          zapi_zaap_id?: string | null
         }
         Relationships: [
           {

@@ -39,30 +39,65 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    if (body.type === "DeliveryCallback") {
+    if (body.type === "DeliveryCallback" || body.type === "MessageStatusCallback") {
       const deliveryError = typeof body.error === "string" ? body.error.trim() : "";
-      const zapiIds = [body.zaapId, body.messageId, ...(Array.isArray(body.ids) ? body.ids : [])]
+      const zapiIds = [body.id, body.zaapId, body.messageId, ...(Array.isArray(body.ids) ? body.ids : [])]
         .filter(Boolean)
         .map(String);
+      const deliveryStatus = deliveryError ? "failed" : String(body.status || "sent").toLowerCase();
 
-      console.log(`[DELIVERY CALLBACK] phone=${body.phone || ""} ids=${zapiIds.join(",")} error=${deliveryError || "none"}`);
+      console.log("[DELIVERY CALLBACK RECEIVED]", JSON.stringify({
+        instanceId: body.instanceId,
+        phone: body.phone,
+        status: body.status,
+        error: deliveryError || null,
+        zaapId: body.zaapId,
+        messageId: body.messageId,
+        ids: body.ids,
+        id: body.id,
+        type: body.type,
+        isGroup: body.isGroup,
+        momment: body.momment,
+      }));
+      console.log("[DELIVERY CALLBACK IDS]", JSON.stringify({ ids: zapiIds }));
 
-      if (deliveryError && zapiIds.length > 0) {
-        const { data: failedMessages, error: updateError } = await supabase
+      if (zapiIds.length > 0) {
+        const inList = zapiIds.map((id) => `"${id.replace(/"/g, "")}"`).join(",");
+        const { data: matchedMessages, error: matchError } = await supabase
           .from("messages")
-          .update({ zapi_message_id: null })
+          .select("id, ticket_id, source, zapi_message_id, zapi_zaap_id, zapi_id")
           .eq("direction", "outbound")
-          .in("zapi_message_id", zapiIds)
-          .select("id, ticket_id");
+          .or(`zapi_message_id.in.(${inList}),zapi_zaap_id.in.(${inList}),zapi_id.in.(${inList})`);
 
-        if (updateError) {
-          console.error("[DELIVERY FAILED UPDATE ERROR]", updateError);
+        if (matchError) {
+          console.error("[DELIVERY CALLBACK MATCH ERROR]", matchError);
         } else {
-          console.log(`[DELIVERY FAILED] ${failedMessages?.length || 0} mensagem(ns) marcada(s) para retry: ${deliveryError}`);
+          console.log("[DELIVERY CALLBACK MATCH]", JSON.stringify({ count: matchedMessages?.length || 0, matched: matchedMessages || [] }));
+          if (matchedMessages?.length) {
+            const { error: updateError } = await supabase
+              .from("messages")
+              .update({
+                delivery_status: deliveryStatus,
+                delivery_error: deliveryError || null,
+                delivery_callback_payload: body,
+                delivery_updated_at: new Date().toISOString(),
+              })
+              .in("id", matchedMessages.map((m: any) => m.id));
+
+            if (updateError) {
+              console.error("[DELIVERY STATUS UPDATE ERROR]", updateError);
+            } else {
+              console.log("[DELIVERY STATUS UPDATED]", JSON.stringify({
+                status: deliveryStatus,
+                error: deliveryError || null,
+                messages: matchedMessages.map((m: any) => ({ id: m.id, ticket_id: m.ticket_id, origin: m.source, zapi_message_id: m.zapi_message_id, zapi_zaap_id: m.zapi_zaap_id, zapi_id: m.zapi_id })),
+              }));
+            }
+          }
         }
       }
 
-      return new Response(JSON.stringify({ ok: true, handled: "delivery_callback", failed: Boolean(deliveryError) }), {
+      return new Response(JSON.stringify({ ok: true, handled: "delivery_callback", failed: Boolean(deliveryError), status: deliveryStatus }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

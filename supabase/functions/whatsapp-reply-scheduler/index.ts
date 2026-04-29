@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { sendZapiText } from "../_shared/zapi.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -145,35 +146,37 @@ serve(async (req) => {
             .eq("id", item.ticket_id);
 
           const handoffMessage = "Entendido! Vou chamar nossa equipe para te atender. Um momento. 💛";
-          const zapiBase = `https://api.z-api.io/instances/${settings.zapi_instance_id}/token/${settings.zapi_token}`;
-          const zapiHdr: Record<string, string> = {
-            "Content-Type": "application/json",
-            ...(settings.zapi_client_token ? { "Client-Token": settings.zapi_client_token } : {}),
-          };
 
           try {
             const cleanHandoffPhone = ticket.customer_phone.replace(/\D/g, "");
-            const sendRes = await fetch(`${zapiBase}/send-text`, {
-              method: "POST",
-              headers: zapiHdr,
-              body: JSON.stringify({ phone: cleanHandoffPhone, message: handoffMessage }),
+            const sendResult = await sendZapiText({
+              instanceId: settings.zapi_instance_id,
+              token: settings.zapi_token,
+              clientToken: settings.zapi_client_token,
+              phone: cleanHandoffPhone,
+              message: handoffMessage,
+              origin: "ai_handoff",
             });
 
-            if (!sendRes.ok) {
-              const errBody = await sendRes.text().catch(() => "");
-              console.error(`[HUMAN HANDOFF FAIL] Z-API ${sendRes.status}: ${errBody}`);
+            if (!sendResult.ok) {
+              console.error(`[HUMAN HANDOFF FAIL] ${sendResult.error}`, sendResult.zapi_response);
               // NÃO inserir em messages — mensagem não foi entregue
             } else {
-              const sendData = await sendRes.json().catch(() => ({}));
-              await supabase.from("messages").insert({
+              const { data: savedHandoff } = await supabase.from("messages").insert({
                 ticket_id: item.ticket_id,
                 store_id: item.store_id,
                 direction: "outbound",
                 content: handoffMessage,
                 message_type: "text",
                 source: "ai",
-                zapi_message_id: sendData?.zaapId || sendData?.messageId || sendData?.id || null,
-              });
+                zapi_message_id: sendResult.zapi_message_id,
+                zapi_zaap_id: sendResult.zapi_zaap_id,
+                zapi_id: sendResult.zapi_id,
+                zapi_response: sendResult.zapi_response,
+                delivery_status: "sent_to_zapi",
+                delivery_updated_at: new Date().toISOString(),
+              }).select("id").single();
+              console.log("[MESSAGE SAVED]", JSON.stringify({ id: savedHandoff?.id, origin: "ai_handoff", zapi_message_id: sendResult.zapi_message_id, zapi_zaap_id: sendResult.zapi_zaap_id, zapi_id: sendResult.zapi_id }));
             }
           } catch (e) {
             console.error("[HUMAN HANDOFF] Erro ao enviar mensagem ao cliente:", e);
@@ -181,13 +184,13 @@ serve(async (req) => {
 
           // Notificar Paulo
           try {
-            await fetch(`${zapiBase}/send-text`, {
-              method: "POST",
-              headers: zapiHdr,
-              body: JSON.stringify({
-                phone: "553388756885",
-                message: `⚠️ *Atendimento Humano Solicitado*\n\nCliente: ${ticket.customer_name || "(sem nome)"}\nTelefone: ${ticket.customer_phone}\n\nA IA foi pausada. Acesse o painel para responder manualmente.`,
-              }),
+            await sendZapiText({
+              instanceId: settings.zapi_instance_id,
+              token: settings.zapi_token,
+              clientToken: settings.zapi_client_token,
+              phone: "553388756885",
+              message: `⚠️ *Atendimento Humano Solicitado*\n\nCliente: ${ticket.customer_name || "(sem nome)"}\nTelefone: ${ticket.customer_phone}\n\nA IA foi pausada. Acesse o painel para responder manualmente.`,
+              origin: "supervisor_alert",
             });
           } catch (e) {
             console.error("[HUMAN HANDOFF] Erro ao notificar operador:", e);
@@ -1173,20 +1176,17 @@ ${sentimentInstruction}
         const delaySeconds = settings.ai_response_delay || 2;
         await new Promise(r => setTimeout(r, delaySeconds * 1000));
 
-        // Send via Z-API
-        const sendRes = await fetch(`${zapiBaseUrl}/send-text`, {
-          method: "POST",
-          headers: zapiHeaders,
-          body: JSON.stringify({ phone: cleanPhone, message: responseText }),
+        const sendResult = await sendZapiText({
+          instanceId: settings.zapi_instance_id,
+          token: settings.zapi_token,
+          clientToken: settings.zapi_client_token,
+          phone: cleanPhone,
+          message: responseText,
+          origin: "ai_scheduler",
         });
 
-        let sentZapiId: string | null = null;
-        let sendBody: any = {};
-        try { sendBody = await sendRes.clone().json(); } catch (_) { /* ignore */ }
-        console.log(`[Z-API MAIN] status: ${sendRes.status}, zaapId: ${sendBody?.zaapId}, error: ${sendBody?.error}`);
-
-        if (!sendRes.ok || sendBody?.error) {
-          console.error(`[Z-API FAIL] ${sendRes.status}:`, sendBody);
+        if (!sendResult.ok) {
+          console.error(`[Z-API FAIL] ${sendResult.status || "no-status"}:`, sendResult.zapi_response || sendResult.error);
           // Stop typing
           await fetch(`${zapiBaseUrl}/send-chat-state`, {
             method: "POST", headers: zapiHeaders,
@@ -1201,8 +1201,6 @@ ${sentimentInstruction}
           continue;
         }
 
-        sentZapiId = sendBody?.zaapId || sendBody?.messageId || sendBody?.id || null;
-
         // Stop typing indicator
         await fetch(`${zapiBaseUrl}/send-chat-state`, {
           method: "POST",
@@ -1211,14 +1209,21 @@ ${sentimentInstruction}
         }).catch(() => {});
 
         // Save outbound message — apenas após confirmação do Z-API
-        await supabase.from("messages").insert({
+        const { data: savedAiMessage } = await supabase.from("messages").insert({
           ticket_id: item.ticket_id,
           store_id: item.store_id,
           content: responseText,
           direction: "outbound",
           message_type: "text",
-          zapi_message_id: sentZapiId,
-        });
+          source: "ai",
+          zapi_message_id: sendResult.zapi_message_id,
+          zapi_zaap_id: sendResult.zapi_zaap_id,
+          zapi_id: sendResult.zapi_id,
+          zapi_response: sendResult.zapi_response,
+          delivery_status: "sent_to_zapi",
+          delivery_updated_at: new Date().toISOString(),
+        }).select("id").single();
+        console.log("[MESSAGE SAVED]", JSON.stringify({ id: savedAiMessage?.id, origin: "ai_scheduler", zapi_message_id: sendResult.zapi_message_id, zapi_zaap_id: sendResult.zapi_zaap_id, zapi_id: sendResult.zapi_id }));
 
         // ── Detectar solicitação pendente (troca, endereço, tamanho, cancel, refund) ──
         try {

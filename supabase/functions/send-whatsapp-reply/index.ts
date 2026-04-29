@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { sendZapiText } from "../_shared/zapi.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -49,39 +50,35 @@ serve(async (req) => {
 
     const cleanPhone = ticket.customer_phone.replace(/\D/g, "");
 
-    const zapiUrl = `https://api.z-api.io/instances/${settings.zapi_instance_id}/token/${settings.zapi_token}/send-text`;
-    const zapiRes = await fetch(zapiUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Client-Token": settings.zapi_client_token || "",
-      },
-      body: JSON.stringify({ phone: cleanPhone, message }),
+    const zapiResult = await sendZapiText({
+      instanceId: settings.zapi_instance_id,
+      token: settings.zapi_token,
+      clientToken: settings.zapi_client_token,
+      phone: cleanPhone,
+      message,
+      origin: "manual",
     });
 
-    const zapiBody: any = await zapiRes.json().catch(() => ({}));
-    console.log(`[Z-API RESPONSE] status: ${zapiRes.status}, body: ${JSON.stringify(zapiBody)}`);
-
-    if (!zapiRes.ok || zapiBody?.error) {
-      console.error("[Z-API FAIL]", zapiRes.status, zapiBody);
+    if (!zapiResult.ok) {
+      console.error("[Z-API FAIL]", zapiResult.status, zapiResult.zapi_response);
       return json({
         ok: false,
-        error: zapiBody?.error || `Z-API retornou HTTP ${zapiRes.status}`,
-        zapi_response: zapiBody,
+        error: zapiResult.error || "Falha ao enviar pela Z-API",
+        zapi_response: zapiResult.zapi_response,
       }, 200);
     }
 
-    const zapiId = zapiBody?.zaapId || zapiBody?.messageId || zapiBody?.id || null;
+    const zapiId = zapiResult.zapi_message_id || null;
     if (!zapiId) {
-      console.error("[Z-API FAIL] resposta sem zaapId/messageId/id:", zapiBody);
+      console.error("[Z-API FAIL] resposta sem zaapId/messageId/id:", zapiResult.zapi_response);
       return json({
         ok: false,
         error: "Z-API respondeu sem ID da mensagem — envio não confirmado",
-        zapi_response: zapiBody,
+        zapi_response: zapiResult.zapi_response,
       }, 200);
     }
 
-    await supabase.from("messages").insert({
+    const { data: savedMessage } = await supabase.from("messages").insert({
       ticket_id,
       store_id,
       content: message,
@@ -89,7 +86,13 @@ serve(async (req) => {
       message_type: "text",
       source: messageSource,
       zapi_message_id: zapiId,
-    });
+      zapi_zaap_id: zapiResult.zapi_zaap_id,
+      zapi_id: zapiResult.zapi_id,
+      zapi_response: zapiResult.zapi_response,
+      delivery_status: "sent_to_zapi",
+      delivery_updated_at: new Date().toISOString(),
+    }).select("id").single();
+    console.log("[MESSAGE SAVED]", JSON.stringify({ id: savedMessage?.id, origin: messageSource, zapi_message_id: zapiId, zapi_zaap_id: zapiResult.zapi_zaap_id, zapi_id: zapiResult.zapi_id }));
 
     await supabase.from("tickets").update({ last_message_at: new Date().toISOString() }).eq("id", ticket_id);
 
@@ -134,9 +137,9 @@ serve(async (req) => {
       ok: true,
       source: messageSource,
       zapi_message_id: zapiId,
-      zaapId: zapiBody?.zaapId || null,
-      messageId: zapiBody?.messageId || null,
-      zapi_response: zapiBody,
+      zaapId: zapiResult.zaapId || null,
+      messageId: zapiResult.messageId || null,
+      zapi_response: zapiResult.zapi_response,
     });
   } catch (e: any) {
     console.error("send-whatsapp-reply error:", e);

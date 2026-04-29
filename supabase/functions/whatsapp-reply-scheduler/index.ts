@@ -144,10 +144,11 @@ serve(async (req) => {
           };
 
           try {
+            const cleanHandoffPhone = ticket.customer_phone.replace(/\D/g, "");
             const sendRes = await fetch(`${zapiBase}/send-text`, {
               method: "POST",
               headers: zapiHdr,
-              body: JSON.stringify({ phone: ticket.customer_phone, message: handoffMessage }),
+              body: JSON.stringify({ phone: cleanHandoffPhone, message: handoffMessage }),
             });
 
             if (!sendRes.ok) {

@@ -18,6 +18,10 @@ const json = (b: unknown, status = 200) =>
 
 const RATE_LIMIT_SECONDS = 120;
 const FIRST_DELAY_SECONDS = 30;
+const DEFAULT_MAX_CLIENTS = 25;
+const MAX_CLIENTS_CAP = 100;
+const MAX_TICKETS_TO_SCAN = 1000;
+const MESSAGE_SCAN_LIMIT = 5000;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -26,7 +30,11 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const store_id: string | undefined = body.store_id;
     const dry_run: boolean = Boolean(body.dry_run);
-    const max_clients: number = Number(body.max_clients) > 0 ? Number(body.max_clients) : 500;
+    const requestedMaxClients = Number(body.max_clients);
+    const max_clients: number = Math.min(
+      Number.isFinite(requestedMaxClients) && requestedMaxClients > 0 ? requestedMaxClients : DEFAULT_MAX_CLIENTS,
+      MAX_CLIENTS_CAP,
+    );
 
     if (!store_id) return json({ ok: false, error: "store_id required" });
 
@@ -41,7 +49,8 @@ serve(async (req) => {
       .select("id, store_id, customer_phone, status, ai_paused, last_message_at, recovery_message_sent_at")
       .eq("store_id", store_id)
       .eq("status", "open")
-      .order("last_message_at", { ascending: true });
+      .order("last_message_at", { ascending: true })
+      .limit(MAX_TICKETS_TO_SCAN);
 
     if (tErr) return json({ ok: false, error: tErr.message });
     if (!tickets || tickets.length === 0) return json({ ok: true, scheduled: 0, items: [] });
@@ -68,6 +77,9 @@ serve(async (req) => {
     }
 
     const candidateIds = candidates.map((t) => t.id);
+    if (candidateIds.length === 0) {
+      return json({ ok: true, scheduled: 0, eligible_count: 0, skipped_count: skipped.length, items: [] });
+    }
 
     // 2) Pré-carregamento em BATCH (3 queries no total, sem N+1)
     const [queuedRes, allMsgsRes, deliveredOutRes] = await Promise.all([
@@ -82,7 +94,8 @@ serve(async (req) => {
         .select("ticket_id, direction, created_at")
         .eq("store_id", store_id)
         .in("ticket_id", candidateIds)
-        .order("created_at", { ascending: false }),
+        .order("created_at", { ascending: false })
+        .limit(MESSAGE_SCAN_LIMIT),
       supabase
         .from("messages")
         .select("ticket_id")
@@ -92,6 +105,10 @@ serve(async (req) => {
         .in("delivery_status", ["sent", "delivered", "received", "read"])
         .in("ticket_id", candidateIds),
     ]);
+
+    if (queuedRes.error) return json({ ok: false, error: queuedRes.error.message });
+    if (allMsgsRes.error) return json({ ok: false, error: allMsgsRes.error.message });
+    if (deliveredOutRes.error) return json({ ok: false, error: deliveredOutRes.error.message });
 
     const alreadyQueued = new Set((queuedRes.data || []).map((r: any) => r.ticket_id));
     const recentlyDelivered = new Set((deliveredOutRes.data || []).map((r: any) => r.ticket_id));
@@ -135,23 +152,31 @@ serve(async (req) => {
       lastQueued ? new Date(lastQueued.scheduled_for).getTime() + RATE_LIMIT_SECONDS * 1000 : 0,
     );
 
-    const inserted: Array<{ ticket_id: string; scheduled_for: string }> = [];
-    for (const e of eligible) {
+    const rows = eligible.map((e) => {
       const scheduled_for = new Date(cursorMs).toISOString();
-      const { error: insErr } = await supabase.from("recovery_reply_queue").insert({
+      cursorMs += RATE_LIMIT_SECONDS * 1000;
+      return {
         ticket_id: e.ticket_id,
         store_id,
         status: "pending",
         scheduled_for,
-      });
-      if (insErr) {
-        console.error("[RECOVERY ENQUEUE] insert error", e.ticket_id, insErr.message);
-        continue;
-      }
-      console.log(`[RECOVERY QUEUE CREATED] ${JSON.stringify({ ticket_id: e.ticket_id, store_id, scheduled_for })}`);
-      inserted.push({ ticket_id: e.ticket_id, scheduled_for });
-      cursorMs += RATE_LIMIT_SECONDS * 1000;
+      };
+    });
+
+    const { data: insertedRows, error: insErr } = rows.length
+      ? await supabase
+          .from("recovery_reply_queue")
+          .insert(rows)
+          .select("ticket_id, scheduled_for")
+      : { data: [], error: null };
+
+    if (insErr) {
+      console.error("[RECOVERY ENQUEUE] bulk insert error", insErr.message);
+      return json({ ok: false, error: insErr.message });
     }
+
+    const inserted = insertedRows || [];
+    console.log(`[RECOVERY QUEUE CREATED BULK] ${JSON.stringify({ store_id, count: inserted.length })}`);
 
     return json({
       ok: true,

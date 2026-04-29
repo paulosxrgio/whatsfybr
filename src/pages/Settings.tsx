@@ -78,6 +78,40 @@ const SettingsPage = () => {
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [verifyingShopify, setVerifyingShopify] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+
+  const handleRetryFailedMessages = async () => {
+    if (!currentStore) return;
+    setRetrying(true);
+    let totalSent = 0;
+    let totalFailed = 0;
+    let totalProcessed = 0;
+    try {
+      let hasMore = true;
+      while (hasMore) {
+        const { data, error } = await supabase.functions.invoke("retry-failed-messages", {
+          body: { store_id: currentStore.id },
+        });
+        if (error) throw error;
+        totalProcessed += data?.total || 0;
+        totalSent += data?.sent || 0;
+        totalFailed += data?.failed || 0;
+        hasMore = !!data?.has_more;
+        if (hasMore) {
+          toast.info(`Lote concluído (${data.sent} enviadas). Continuando…`);
+        }
+      }
+      if (totalProcessed === 0) {
+        toast.success("Nenhuma mensagem com falha encontrada nas últimas 6h. ✅");
+      } else {
+        toast.success(`Reenvio concluído: ${totalSent} enviadas, ${totalFailed} falharam (${totalProcessed} total).`);
+      }
+    } catch (e: any) {
+      toast.error(`Erro ao reenviar: ${e.message || e}`);
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   useEffect(() => {
     if (!currentStore) return;

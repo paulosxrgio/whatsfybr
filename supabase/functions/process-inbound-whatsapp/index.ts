@@ -34,6 +34,39 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "Missing store_id" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+
+    if (body.type === "DeliveryCallback") {
+      const deliveryError = typeof body.error === "string" ? body.error.trim() : "";
+      const zapiIds = [body.zaapId, body.messageId, ...(Array.isArray(body.ids) ? body.ids : [])]
+        .filter(Boolean)
+        .map(String);
+
+      console.log(`[DELIVERY CALLBACK] phone=${body.phone || ""} ids=${zapiIds.join(",")} error=${deliveryError || "none"}`);
+
+      if (deliveryError && zapiIds.length > 0) {
+        const { data: failedMessages, error: updateError } = await supabase
+          .from("messages")
+          .update({ zapi_message_id: null })
+          .eq("direction", "outbound")
+          .in("zapi_message_id", zapiIds)
+          .select("id, ticket_id");
+
+        if (updateError) {
+          console.error("[DELIVERY FAILED UPDATE ERROR]", updateError);
+        } else {
+          console.log(`[DELIVERY FAILED] ${failedMessages?.length || 0} mensagem(ns) marcada(s) para retry: ${deliveryError}`);
+        }
+      }
+
+      return new Response(JSON.stringify({ ok: true, handled: "delivery_callback", failed: Boolean(deliveryError) }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // Ignorar mensagens enviadas por mim
     console.log("fromMe:", body.fromMe, "isGroup:", body.isGroup, "type:", body.type);
     if (body.fromMe === true) {
@@ -73,11 +106,6 @@ serve(async (req) => {
       console.log(`Ignorando LID (não é telefone real): ${phone}`);
       return new Response(JSON.stringify({ ok: true, skipped: "lid_filtered" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
 
     // Idempotência
     if (zapiMessageId) {

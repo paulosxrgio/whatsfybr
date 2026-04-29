@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Copy, CheckCircle, Loader2, Info, Wifi, Activity, Zap, ShoppingBag, Eye, EyeOff } from "lucide-react";
+import { Copy, CheckCircle, Loader2, Info, Wifi, Activity, Zap, ShoppingBag, Eye, EyeOff, RefreshCw } from "lucide-react";
 
 const PasswordInput = ({ value, onChange, placeholder, className }: { value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; placeholder?: string; className?: string }) => {
   const [show, setShow] = useState(false);

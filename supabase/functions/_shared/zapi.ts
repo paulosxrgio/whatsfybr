@@ -45,9 +45,23 @@ export async function getZapiInstanceStatus(instanceId: string, token: string, c
   return { ok: res.ok, connected, smartphoneConnected, body };
 }
 
+async function getZapiLid(instanceId: string, token: string, clientToken: string | null | undefined, phone: string) {
+  if (!/^\d{10,13}$/.test(phone)) return null;
+  const res = await fetch(`https://api.z-api.io/instances/${instanceId}/token/${token}/phone-exists/${phone}`, {
+    method: "GET",
+    headers: { ...(clientToken ? { "Client-Token": clientToken } : {}) },
+  });
+  const body = parseJson(await res.text());
+  const item = Array.isArray(body) ? body[0] : body;
+  const lid = item?.exists && typeof item?.lid === "string" && item.lid.includes("@lid") ? item.lid : null;
+  console.log("[ZAPI PHONE EXISTS]", JSON.stringify({ phone, exists: item?.exists, hasLid: Boolean(lid) }));
+  return lid;
+}
+
 export async function sendZapiText(params: SendZapiTextParams): Promise<ZapiSendResult> {
   const { instanceId, token, clientToken, phone, recipientLid, message, origin } = params;
-  const recipient = recipientLid?.includes("@lid") ? recipientLid : phone;
+  const resolvedLid = recipientLid?.includes("@lid") ? recipientLid : await getZapiLid(instanceId, token, clientToken, phone).catch(() => null);
+  const recipient = resolvedLid || phone;
   console.log("[SEND DEBUG]", JSON.stringify({ origin, phone, recipient, usingLid: recipient !== phone, messageLength: message.length, hasClientToken: Boolean(clientToken) }));
 
   const status = await getZapiInstanceStatus(instanceId, token, clientToken);

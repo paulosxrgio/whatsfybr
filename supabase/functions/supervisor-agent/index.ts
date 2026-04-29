@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { sendZapiText } from "../_shared/zapi.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -47,7 +48,12 @@ serve(async (req) => {
     );
 
     const body = await req.json().catch(() => ({}));
-    const { storeId } = body;
+    const storeId = body.storeId || body.store_id;
+    console.log("[SUPERVISOR REQUEST]", JSON.stringify({
+      storeId,
+      has_store_id: !!body.store_id,
+      has_storeId: !!body.storeId,
+    }));
 
     if (!storeId) {
       return new Response(JSON.stringify({ error: "storeId required" }), {
@@ -228,17 +234,15 @@ ${analysis.prompt_additions.map((r: string) => `- ${r}`).join("\n")}`;
         + `📝 Resumo: ${analysis.summary}`;
 
       try {
-        await fetch(`https://api.z-api.io/instances/${settings.zapi_instance_id}/token/${settings.zapi_token}/send-text`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(settings.zapi_client_token ? { "Client-Token": settings.zapi_client_token } : {}),
-          },
-          body: JSON.stringify({
-            phone: "553388756885",
-            message: alertMessage,
-          }),
+        const sendResult = await sendZapiText({
+          instanceId: settings.zapi_instance_id,
+          token: settings.zapi_token,
+          clientToken: settings.zapi_client_token,
+          phone: "553388756885",
+          message: alertMessage,
+          origin: "supervisor_alert",
         });
+        if (!sendResult.ok) console.error("[SUPERVISOR] Failed to send WhatsApp alert:", sendResult.error, sendResult.zapi_response);
       } catch (e) {
         console.error("[SUPERVISOR] Failed to send WhatsApp alert:", e);
       }

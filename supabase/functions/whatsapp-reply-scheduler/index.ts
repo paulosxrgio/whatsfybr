@@ -1159,26 +1159,50 @@ ${sentimentInstruction}
         await new Promise(r => setTimeout(r, delaySeconds * 1000));
 
         // Send via Z-API
-        await fetch(`${zapiBaseUrl}/send-text`, {
+        const sendRes = await fetch(`${zapiBaseUrl}/send-text`, {
           method: "POST",
           headers: zapiHeaders,
           body: JSON.stringify({ phone: cleanPhone, message: responseText }),
         });
+
+        let sentZapiId: string | null = null;
+        if (!sendRes.ok) {
+          const errText = await sendRes.text().catch(() => "");
+          console.error(`[Z-API SEND FAIL] ticket ${item.ticket_id} HTTP ${sendRes.status}: ${errText}`);
+          // Stop typing
+          await fetch(`${zapiBaseUrl}/send-chat-state`, {
+            method: "POST", headers: zapiHeaders,
+            body: JSON.stringify({ phone: cleanPhone, chatState: "paused" }),
+          }).catch(() => {});
+          // Re-enqueue para tentar novamente em 2 minutos (não grava no banco)
+          await supabase.from("auto_reply_queue").update({
+            status: "pending",
+            scheduled_for: new Date(Date.now() + 120000).toISOString(),
+            pending_since: new Date().toISOString(),
+          }).eq("id", item.id);
+          continue;
+        }
+
+        try {
+          const sendData = await sendRes.json();
+          sentZapiId = sendData?.messageId || sendData?.id || null;
+        } catch (_) { /* ignore */ }
 
         // Stop typing indicator
         await fetch(`${zapiBaseUrl}/send-chat-state`, {
           method: "POST",
           headers: zapiHeaders,
           body: JSON.stringify({ phone: cleanPhone, chatState: "paused" }),
-        });
+        }).catch(() => {});
 
-        // Save outbound message
+        // Save outbound message — apenas após confirmação do Z-API
         await supabase.from("messages").insert({
           ticket_id: item.ticket_id,
           store_id: item.store_id,
           content: responseText,
           direction: "outbound",
           message_type: "text",
+          zapi_message_id: sentZapiId,
         });
 
         // ── Detectar solicitação pendente (troca, endereço, tamanho, cancel, refund) ──

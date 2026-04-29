@@ -813,7 +813,11 @@ const TicketsPage = () => {
                               <span className="text-xs text-gray-400">
                                 {msg.created_at && format(new Date(msg.created_at), "HH:mm")}
                               </span>
-                              <CheckCheck className="w-3 h-3 text-blue-500" />
+                              {msg.zapi_message_id ? (
+                                <CheckCheck className="w-3 h-3 text-blue-500" />
+                              ) : (
+                                <AlertTriangle className="w-3 h-3 text-red-500" />
+                              )}
                             </div>
                           </div>
                         </div>

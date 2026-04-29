@@ -94,38 +94,38 @@ serve(async (req) => {
     const hasMore = eligible.length > BATCH_SIZE;
     const toProcess = eligible.slice(0, BATCH_SIZE);
 
-    const zapiBase = `https://api.z-api.io/instances/${settings.zapi_instance_id}/token/${settings.zapi_token}`;
-    const zapiHeaders: Record<string, string> = {
-      "Content-Type": "application/json",
-      ...(settings.zapi_client_token ? { "Client-Token": settings.zapi_client_token } : {}),
-    };
-
     let sent = 0;
     let failedCount = 0;
     const errors: Array<{ id: string; phone: string; error: string }> = [];
+    const sendUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-whatsapp-reply`;
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
     for (let i = 0; i < toProcess.length; i++) {
       const msg: any = toProcess[i];
       const phone = String(msg.tickets.customer_phone).replace(/\D/g, "");
 
       try {
-        const res = await fetch(`${zapiBase}/send-text`, {
-          method: "POST",
-          headers: zapiHeaders,
-          body: JSON.stringify({ phone, message: msg.content }),
-        });
+        // Apaga o registro antigo "fantasma" e deixa send-whatsapp-reply criar um novo já confirmado.
+        await supabase.from("messages").delete().eq("id", msg.id);
 
-        if (!res.ok) {
-          const errText = await res.text().catch(() => "");
+        const res = await fetch(sendUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
+          body: JSON.stringify({
+            ticket_id: msg.ticket_id,
+            store_id,
+            message: msg.content,
+            source: "ai",
+          }),
+        });
+        const data = await res.json().catch(() => ({} as any));
+        if (!res.ok || !data?.ok) {
           failedCount++;
-          errors.push({ id: msg.id, phone, error: `HTTP ${res.status}: ${errText.slice(0, 200)}` });
-          console.error(`[RETRY FAIL] ${phone} HTTP ${res.status}: ${errText}`);
+          errors.push({ id: msg.id, phone, error: data?.error || `HTTP ${res.status}` });
+          console.error(`[RETRY FAIL] ${phone}:`, data);
         } else {
-          const data = await res.json().catch(() => ({} as any));
-          const zid = data?.zaapId || data?.messageId || data?.id || null;
-          await supabase.from("messages").update({ zapi_message_id: zid }).eq("id", msg.id);
           sent++;
-          console.log(`[RETRY OK] ${phone} -> ${zid}`);
+          console.log(`[RETRY OK] ${phone} -> ${data?.zapi_message_id}`);
         }
       } catch (e: any) {
         failedCount++;
@@ -133,7 +133,6 @@ serve(async (req) => {
         console.error(`[RETRY ERR] ${phone}:`, e);
       }
 
-      // delay entre envios (exceto após o último)
       if (i < toProcess.length - 1) {
         await new Promise((r) => setTimeout(r, DELAY_MS));
       }

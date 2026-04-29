@@ -189,13 +189,13 @@ serve(async (req) => {
 
           // Notificar Paulo
           try {
-            await fetch(`${zapiBase}/send-text`, {
-              method: "POST",
-              headers: zapiHdr,
-              body: JSON.stringify({
-                phone: "553388756885",
-                message: `⚠️ *Atendimento Humano Solicitado*\n\nCliente: ${ticket.customer_name || "(sem nome)"}\nTelefone: ${ticket.customer_phone}\n\nA IA foi pausada. Acesse o painel para responder manualmente.`,
-              }),
+            await sendZapiText({
+              instanceId: settings.zapi_instance_id,
+              token: settings.zapi_token,
+              clientToken: settings.zapi_client_token,
+              phone: "553388756885",
+              message: `⚠️ *Atendimento Humano Solicitado*\n\nCliente: ${ticket.customer_name || "(sem nome)"}\nTelefone: ${ticket.customer_phone}\n\nA IA foi pausada. Acesse o painel para responder manualmente.`,
+              origin: "supervisor_alert",
             });
           } catch (e) {
             console.error("[HUMAN HANDOFF] Erro ao notificar operador:", e);

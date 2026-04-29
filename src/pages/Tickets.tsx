@@ -53,6 +53,7 @@ type Message = {
   message_type: string | null;
   media_url: string | null;
   created_at: string | null;
+  zapi_message_id?: string | null;
 };
 
 type CustomerMemory = {
@@ -344,8 +345,14 @@ const TicketsPage = () => {
 
     const channel = supabase
       .channel("messages-realtime")
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `ticket_id=eq.${selectedTicket.id}` }, (payload) => {
-        setMessages((prev) => [...prev, payload.new as Message]);
+      .on("postgres_changes", { event: "*", schema: "public", table: "messages", filter: `ticket_id=eq.${selectedTicket.id}` }, (payload) => {
+        if (payload.eventType === "INSERT") {
+          setMessages((prev) => [...prev, payload.new as Message]);
+          return;
+        }
+        if (payload.eventType === "UPDATE") {
+          setMessages((prev) => prev.map((msg) => msg.id === (payload.new as Message).id ? payload.new as Message : msg));
+        }
       })
       .subscribe();
 
@@ -806,7 +813,11 @@ const TicketsPage = () => {
                               <span className="text-xs text-gray-400">
                                 {msg.created_at && format(new Date(msg.created_at), "HH:mm")}
                               </span>
-                              <CheckCheck className="w-3 h-3 text-blue-500" />
+                              {msg.zapi_message_id ? (
+                                <CheckCheck className="w-3 h-3 text-blue-500" />
+                              ) : (
+                                <AlertTriangle className="w-3 h-3 text-red-500" />
+                              )}
                             </div>
                           </div>
                         </div>

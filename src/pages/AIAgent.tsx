@@ -415,7 +415,7 @@ const AIAgentPage = () => {
     if (!currentStore) return;
     setForcingAnalysis(true);
     const { error } = await supabase.functions.invoke("supervisor-agent", {
-      body: { store_id: currentStore.id },
+      body: { storeId: currentStore.id },
     });
     if (error) {
       toast.error("Erro ao forçar análise");

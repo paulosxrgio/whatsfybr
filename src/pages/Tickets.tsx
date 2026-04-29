@@ -54,6 +54,8 @@ type Message = {
   media_url: string | null;
   created_at: string | null;
   zapi_message_id?: string | null;
+  delivery_status?: string | null;
+  delivery_error?: string | null;
 };
 
 type CustomerMemory = {
@@ -84,6 +86,14 @@ const sentimentEmoji: Record<string, string> = {
   neutral: "😐",
   frustrated: "😤",
   angry: "😡",
+};
+
+const deliveryStatusLabel: Record<string, string> = {
+  sent_to_zapi: "Enviada para Z-API",
+  sent: "Enviada",
+  received: "Recebida",
+  read: "Lida",
+  failed: "Falhou",
 };
 
 const TicketsPage = () => {

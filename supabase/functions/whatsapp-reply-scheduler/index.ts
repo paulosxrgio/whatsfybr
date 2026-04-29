@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { sendZapiText } from "../_shared/zapi.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -153,27 +154,34 @@ serve(async (req) => {
 
           try {
             const cleanHandoffPhone = ticket.customer_phone.replace(/\D/g, "");
-            const sendRes = await fetch(`${zapiBase}/send-text`, {
-              method: "POST",
-              headers: zapiHdr,
-              body: JSON.stringify({ phone: cleanHandoffPhone, message: handoffMessage }),
+            const sendResult = await sendZapiText({
+              instanceId: settings.zapi_instance_id,
+              token: settings.zapi_token,
+              clientToken: settings.zapi_client_token,
+              phone: cleanHandoffPhone,
+              message: handoffMessage,
+              origin: "ai_handoff",
             });
 
-            if (!sendRes.ok) {
-              const errBody = await sendRes.text().catch(() => "");
-              console.error(`[HUMAN HANDOFF FAIL] Z-API ${sendRes.status}: ${errBody}`);
+            if (!sendResult.ok) {
+              console.error(`[HUMAN HANDOFF FAIL] ${sendResult.error}`, sendResult.zapi_response);
               // NÃO inserir em messages — mensagem não foi entregue
             } else {
-              const sendData = await sendRes.json().catch(() => ({}));
-              await supabase.from("messages").insert({
+              const { data: savedHandoff } = await supabase.from("messages").insert({
                 ticket_id: item.ticket_id,
                 store_id: item.store_id,
                 direction: "outbound",
                 content: handoffMessage,
                 message_type: "text",
                 source: "ai",
-                zapi_message_id: sendData?.zaapId || sendData?.messageId || sendData?.id || null,
-              });
+                zapi_message_id: sendResult.zapi_message_id,
+                zapi_zaap_id: sendResult.zapi_zaap_id,
+                zapi_id: sendResult.zapi_id,
+                zapi_response: sendResult.zapi_response,
+                delivery_status: "sent_to_zapi",
+                delivery_updated_at: new Date().toISOString(),
+              }).select("id").single();
+              console.log("[MESSAGE SAVED]", JSON.stringify({ id: savedHandoff?.id, origin: "ai_handoff", zapi_message_id: sendResult.zapi_message_id, zapi_zaap_id: sendResult.zapi_zaap_id, zapi_id: sendResult.zapi_id }));
             }
           } catch (e) {
             console.error("[HUMAN HANDOFF] Erro ao enviar mensagem ao cliente:", e);

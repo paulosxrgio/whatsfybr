@@ -1157,44 +1157,32 @@ ${sentimentInstruction}
         else if (lowerContent.match(/(demora|atraso|problema|errado|defeito|não funciona)/)) sentiment = "frustrated";
         else if (lowerContent.match(/(absurd|vergonha|péssimo|horrível|nunca mais|processsar|procon)/)) sentiment = "angry";
 
-        // Clean phone number
-        const cleanPhone = ticket.customer_phone.replace(/\D/g, "");
-
-        // Typing indicator - start composing
-        const zapiBaseUrl = `https://api.z-api.io/instances/${settings.zapi_instance_id}/token/${settings.zapi_token}`;
-        const zapiHeaders = {
-          "Content-Type": "application/json",
-          "Client-Token": settings.zapi_client_token || "",
-        };
-
-        await fetch(`${zapiBaseUrl}/send-chat-state`, {
-          method: "POST",
-          headers: zapiHeaders,
-          body: JSON.stringify({ phone: cleanPhone, chatState: "composing" }),
-        });
-
-        // Wait the configured delay
+        // Pequeno delay configurável antes de enviar
         const delaySeconds = settings.ai_response_delay || 2;
         await new Promise(r => setTimeout(r, delaySeconds * 1000));
 
-        const sendResult = await sendZapiText({
-          instanceId: settings.zapi_instance_id,
-          token: settings.zapi_token,
-          clientToken: settings.zapi_client_token,
-          phone: cleanPhone,
-          recipientLid: ticket.customer_lid,
+        console.log("[SCHEDULER CALL SEND-WHATSAPP-REPLY]", JSON.stringify({
+          ticket_id: item.ticket_id, store_id: item.store_id, source: "ai",
+          response_length: responseText.length,
+        }));
+
+        const sendResult = await callSendWhatsappReply({
+          ticket_id: item.ticket_id,
+          store_id: item.store_id,
           message: responseText,
-          origin: "ai_scheduler",
+          source: "ai",
         });
 
+        console.log("[SCHEDULER SEND RESULT]", JSON.stringify({
+          ok: sendResult.ok,
+          error: sendResult.error,
+          zapi_message_id: sendResult.zapi_message_id,
+          http_status: sendResult.http_status,
+        }));
+
         if (!sendResult.ok) {
-          console.error(`[Z-API FAIL] ${sendResult.status || "no-status"}:`, sendResult.zapi_response || sendResult.error);
-          // Stop typing
-          await fetch(`${zapiBaseUrl}/send-chat-state`, {
-            method: "POST", headers: zapiHeaders,
-            body: JSON.stringify({ phone: cleanPhone, chatState: "paused" }),
-          }).catch(() => {});
-          // Re-enqueue para tentar novamente em 2 minutos (não grava no banco)
+          console.error(`[SCHEDULER SEND FAIL]`, sendResult);
+          // Re-enqueue para tentar novamente em 2 minutos (não grava no banco — quem grava é send-whatsapp-reply)
           await supabase.from("auto_reply_queue").update({
             status: "pending",
             scheduled_for: new Date(Date.now() + 120000).toISOString(),
@@ -1202,30 +1190,7 @@ ${sentimentInstruction}
           }).eq("id", item.id);
           continue;
         }
-
-        // Stop typing indicator
-        await fetch(`${zapiBaseUrl}/send-chat-state`, {
-          method: "POST",
-          headers: zapiHeaders,
-          body: JSON.stringify({ phone: cleanPhone, chatState: "paused" }),
-        }).catch(() => {});
-
-        // Save outbound message — apenas após confirmação do Z-API
-        const { data: savedAiMessage } = await supabase.from("messages").insert({
-          ticket_id: item.ticket_id,
-          store_id: item.store_id,
-          content: responseText,
-          direction: "outbound",
-          message_type: "text",
-          source: "ai",
-          zapi_message_id: sendResult.zapi_message_id,
-          zapi_zaap_id: sendResult.zapi_zaap_id,
-          zapi_id: sendResult.zapi_id,
-          zapi_response: sendResult.zapi_response,
-          delivery_status: "sent_to_zapi",
-          delivery_updated_at: new Date().toISOString(),
-        }).select("id").single();
-        console.log("[MESSAGE SAVED]", JSON.stringify({ id: savedAiMessage?.id, origin: "ai_scheduler", zapi_message_id: sendResult.zapi_message_id, zapi_zaap_id: sendResult.zapi_zaap_id, zapi_id: sendResult.zapi_id }));
+        // Mensagem outbound já foi salva por send-whatsapp-reply.
 
         // ── Detectar solicitação pendente (troca, endereço, tamanho, cancel, refund) ──
         try {

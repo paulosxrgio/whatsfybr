@@ -220,6 +220,42 @@ export type Database = {
           },
         ]
       }
+      recovery_reply_queue: {
+        Row: {
+          attempts: number
+          created_at: string
+          id: string
+          last_error: string | null
+          scheduled_for: string
+          status: string
+          store_id: string
+          ticket_id: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          scheduled_for?: string
+          status?: string
+          store_id: string
+          ticket_id: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          scheduled_for?: string
+          status?: string
+          store_id?: string
+          ticket_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       requests: {
         Row: {
           created_at: string | null
@@ -434,6 +470,7 @@ export type Database = {
           id: string
           intent: string | null
           last_message_at: string | null
+          recovery_message_sent_at: string | null
           sentiment: string | null
           status: string | null
           store_id: string
@@ -448,6 +485,7 @@ export type Database = {
           id?: string
           intent?: string | null
           last_message_at?: string | null
+          recovery_message_sent_at?: string | null
           sentiment?: string | null
           status?: string | null
           store_id: string
@@ -462,6 +500,7 @@ export type Database = {
           id?: string
           intent?: string | null
           last_message_at?: string | null
+          recovery_message_sent_at?: string | null
           sentiment?: string | null
           status?: string | null
           store_id?: string

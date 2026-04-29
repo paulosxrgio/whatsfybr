@@ -163,9 +163,7 @@ serve(async (req) => {
       .from("tickets")
       .select("id, customer_name")
       .eq("store_id", storeId)
-      .eq("status", "open")
-      .order("created_at", { ascending: false })
-      .limit(1);
+      .eq("status", "open");
 
     ticketQuery = chatLid
       ? ticketQuery.or(`customer_phone.eq.${phone},customer_lid.eq.${chatLid}`)
@@ -173,6 +171,7 @@ serve(async (req) => {
 
     const { data: existingTicket } = await ticketQuery
       .order("created_at", { ascending: false })
+      .limit(1)
       .maybeSingle();
 
     let ticketId: string;

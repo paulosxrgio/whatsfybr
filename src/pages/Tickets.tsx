@@ -617,6 +617,33 @@ const TicketsPage = () => {
             <Download className="w-3.5 h-3.5" />
             Exportar
           </button>
+          <button
+            onClick={async () => {
+              if (!currentStore) return;
+              const ok = window.confirm(
+                "Retomar atendimentos pendentes?\n\nSerá enviada 1 mensagem a cada 2 minutos para clientes com ticket aberto cuja última mensagem é deles e sem resposta há mais de 24h."
+              );
+              if (!ok) return;
+              try {
+                const { data, error } = await supabase.functions.invoke("recovery-enqueue-pending", {
+                  body: { store_id: currentStore.id },
+                });
+                if (error) throw error;
+                if (data?.ok === false) throw new Error(data?.error || "Falha ao agendar");
+                toast.success(
+                  `${data?.scheduled || 0} clientes agendados (1 a cada 2 min). Início: ${
+                    data?.first_at ? new Date(data.first_at).toLocaleTimeString("pt-BR") : "-"
+                  }`
+                );
+              } catch (e: any) {
+                toast.error(e?.message || "Erro ao agendar retomada");
+              }
+            }}
+            className="w-full flex items-center justify-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-primary/40 text-primary hover:bg-primary/10 transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Retomar atendimentos pendentes
+          </button>
         </div>
         <ScrollArea className="flex-1 min-h-0">
           {filteredTickets.map((ticket) => (

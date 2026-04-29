@@ -144,6 +144,7 @@ export type Database = {
       }
       messages: {
         Row: {
+          chat_lid: string | null
           content: string | null
           created_at: string | null
           delivery_callback_payload: Json | null
@@ -163,6 +164,7 @@ export type Database = {
           zapi_zaap_id: string | null
         }
         Insert: {
+          chat_lid?: string | null
           content?: string | null
           created_at?: string | null
           delivery_callback_payload?: Json | null
@@ -182,6 +184,7 @@ export type Database = {
           zapi_zaap_id?: string | null
         }
         Update: {
+          chat_lid?: string | null
           content?: string | null
           created_at?: string | null
           delivery_callback_payload?: Json | null
@@ -425,6 +428,7 @@ export type Database = {
           ai_paused: boolean | null
           ai_paused_at: string | null
           created_at: string | null
+          customer_lid: string | null
           customer_name: string | null
           customer_phone: string
           id: string
@@ -438,6 +442,7 @@ export type Database = {
           ai_paused?: boolean | null
           ai_paused_at?: string | null
           created_at?: string | null
+          customer_lid?: string | null
           customer_name?: string | null
           customer_phone: string
           id?: string
@@ -451,6 +456,7 @@ export type Database = {
           ai_paused?: boolean | null
           ai_paused_at?: string | null
           created_at?: string | null
+          customer_lid?: string | null
           customer_name?: string | null
           customer_phone?: string
           id?: string

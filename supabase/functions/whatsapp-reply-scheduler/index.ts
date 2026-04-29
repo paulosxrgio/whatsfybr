@@ -146,11 +146,6 @@ serve(async (req) => {
             .eq("id", item.ticket_id);
 
           const handoffMessage = "Entendido! Vou chamar nossa equipe para te atender. Um momento. 💛";
-          const zapiBase = `https://api.z-api.io/instances/${settings.zapi_instance_id}/token/${settings.zapi_token}`;
-          const zapiHdr: Record<string, string> = {
-            "Content-Type": "application/json",
-            ...(settings.zapi_client_token ? { "Client-Token": settings.zapi_client_token } : {}),
-          };
 
           try {
             const cleanHandoffPhone = ticket.customer_phone.replace(/\D/g, "");

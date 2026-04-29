@@ -6,6 +6,12 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const json = (body: Record<string, unknown>, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -13,9 +19,7 @@ serve(async (req) => {
     const { ticket_id, message, store_id, source } = await req.json();
 
     if (!ticket_id || !message || !store_id) {
-      return new Response(JSON.stringify({ error: "ticket_id, message, store_id required" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return json({ ok: false, error: "ticket_id, message, store_id required" }, 200);
     }
 
     const messageSource: "manual" | "ai" = source === "ai" || source === "ai_generated" ? "ai" : "manual";
@@ -25,11 +29,23 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    const { data: ticket } = await supabase.from("tickets").select("customer_phone").eq("id", ticket_id).single();
-    if (!ticket) throw new Error("Ticket not found");
+    const { data: ticket } = await supabase
+      .from("tickets")
+      .select("customer_phone")
+      .eq("id", ticket_id)
+      .single();
+    if (!ticket) return json({ ok: false, error: "Ticket não encontrado" }, 200);
 
-    const { data: settings } = await supabase.from("settings").select("*").eq("store_id", store_id).single();
-    if (!settings) throw new Error("Settings not found");
+    const { data: settings } = await supabase
+      .from("settings")
+      .select("*")
+      .eq("store_id", store_id)
+      .single();
+    if (!settings) return json({ ok: false, error: "Configurações da loja não encontradas" }, 200);
+
+    if (!settings.zapi_instance_id || !settings.zapi_token) {
+      return json({ ok: false, error: "Z-API não configurada (instance_id/token ausentes)" }, 200);
+    }
 
     const cleanPhone = ticket.customer_phone.replace(/\D/g, "");
 
@@ -43,12 +59,26 @@ serve(async (req) => {
       body: JSON.stringify({ phone: cleanPhone, message }),
     });
 
-    const zapiBody = await zapiRes.json().catch(() => ({} as any));
+    const zapiBody: any = await zapiRes.json().catch(() => ({}));
     console.log(`[Z-API RESPONSE] status: ${zapiRes.status}, body: ${JSON.stringify(zapiBody)}`);
 
     if (!zapiRes.ok || zapiBody?.error) {
       console.error("[Z-API FAIL]", zapiRes.status, zapiBody);
-      throw new Error(`Z-API send failed: ${JSON.stringify(zapiBody)}`);
+      return json({
+        ok: false,
+        error: zapiBody?.error || `Z-API retornou HTTP ${zapiRes.status}`,
+        zapi_response: zapiBody,
+      }, 200);
+    }
+
+    const zapiId = zapiBody?.zaapId || zapiBody?.messageId || zapiBody?.id || null;
+    if (!zapiId) {
+      console.error("[Z-API FAIL] resposta sem zaapId/messageId/id:", zapiBody);
+      return json({
+        ok: false,
+        error: "Z-API respondeu sem ID da mensagem — envio não confirmado",
+        zapi_response: zapiBody,
+      }, 200);
     }
 
     await supabase.from("messages").insert({
@@ -58,7 +88,7 @@ serve(async (req) => {
       direction: "outbound",
       message_type: "text",
       source: messageSource,
-      zapi_message_id: zapiBody?.zaapId || zapiBody?.messageId || zapiBody?.id || null,
+      zapi_message_id: zapiId,
     });
 
     await supabase.from("tickets").update({ last_message_at: new Date().toISOString() }).eq("id", ticket_id);
@@ -100,13 +130,16 @@ serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({ ok: true, source: messageSource }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    return json({
+      ok: true,
+      source: messageSource,
+      zapi_message_id: zapiId,
+      zaapId: zapiBody?.zaapId || null,
+      messageId: zapiBody?.messageId || null,
+      zapi_response: zapiBody,
     });
-  } catch (e) {
+  } catch (e: any) {
     console.error("send-whatsapp-reply error:", e);
-    return new Response(JSON.stringify({ error: e.message }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return json({ ok: false, error: e?.message || "Erro inesperado" }, 200);
   }
 });

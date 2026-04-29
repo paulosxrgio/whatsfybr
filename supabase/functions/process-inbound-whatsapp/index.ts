@@ -118,17 +118,30 @@ serve(async (req) => {
       });
     }
 
-    // Ignorar mensagens enviadas por mim
-    console.log("fromMe:", body.fromMe, "isGroup:", body.isGroup, "type:", body.type);
+    // Ignorar mensagens enviadas por mim ou via API, grupos e newsletters
+    console.log("[INBOUND RECEIVED]", JSON.stringify({
+      type: body.type, fromMe: body.fromMe, fromApi: body.fromApi, isGroup: body.isGroup, isNewsletter: body.isNewsletter,
+      phone: body.phone, messageId: body.messageId,
+    }));
     if (body.fromMe === true) {
+      console.log("[INBOUND SKIPPED]", JSON.stringify({ reason: "fromMe" }));
       return new Response(JSON.stringify({ ok: true, skipped: "fromMe" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-
+    if (body.fromApi === true) {
+      console.log("[INBOUND SKIPPED]", JSON.stringify({ reason: "fromApi" }));
+      return new Response(JSON.stringify({ ok: true, skipped: "fromApi" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     if (body.isGroup === true) {
+      console.log("[INBOUND SKIPPED]", JSON.stringify({ reason: "group" }));
       return new Response(JSON.stringify({ ok: true, skipped: "group" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.isNewsletter === true) {
+      console.log("[INBOUND SKIPPED]", JSON.stringify({ reason: "newsletter" }));
+      return new Response(JSON.stringify({ ok: true, skipped: "newsletter" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     if (body.type !== "ReceivedCallback") {
+      console.log("[INBOUND SKIPPED]", JSON.stringify({ reason: "not_received_callback", type: body.type }));
       return new Response(JSON.stringify({ ok: true, skipped: "not_received_callback" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 

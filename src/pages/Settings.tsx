@@ -421,6 +421,38 @@ const SettingsPage = () => {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <RefreshCw className="h-5 w-5 text-primary" />
+            Recuperação de Mensagens
+          </CardTitle>
+          <CardDescription>
+            Reenvia respostas da Sophia das últimas 6h que não chegaram ao WhatsApp (ex: durante desconexão Z-API). Espaçamento de 10s entre cada para evitar bloqueio do WhatsApp.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button
+            onClick={handleRetryFailedMessages}
+            disabled={retrying || !currentStore}
+            variant="outline"
+            className="w-full"
+          >
+            {retrying ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                Reenviando… (pode levar alguns minutos)
+              </>
+            ) : (
+              <>
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Reenviar mensagens com falha
+              </>
+            )}
+          </Button>
+        </CardContent>
+      </Card>
+
       <Button onClick={handleSave} disabled={saving} className="w-full">
         {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
         Salvar Configurações

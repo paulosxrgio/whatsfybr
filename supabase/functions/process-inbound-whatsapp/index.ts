@@ -138,10 +138,10 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "phone required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Filter out Z-API LIDs (Linked IDs) — not real phone numbers
-    if (phone.length > 13) {
-      console.log(`Ignorando LID (não é telefone real): ${phone}`);
-      return new Response(JSON.stringify({ ok: true, skipped: "lid_filtered" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    // Filtrar apenas números irreais muito longos; @lid é válido para identificar/enviar na Z-API
+    if (!phone.includes("@lid") && phone.length > 13) {
+      console.log(`Ignorando telefone numérico inválido: ${phone}`);
+      return new Response(JSON.stringify({ ok: true, skipped: "invalid_phone" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // Idempotência
@@ -159,14 +159,20 @@ serve(async (req) => {
     }
 
     // Find or create ticket
-    const { data: existingTicket } = await supabase
+    let ticketQuery = supabase
       .from("tickets")
       .select("id, customer_name")
       .eq("store_id", storeId)
-      .eq("customer_phone", phone)
       .eq("status", "open")
       .order("created_at", { ascending: false })
-      .limit(1)
+      .limit(1);
+
+    ticketQuery = chatLid
+      ? ticketQuery.or(`customer_phone.eq.${phone},customer_lid.eq.${chatLid}`)
+      : ticketQuery.eq("customer_phone", phone);
+
+    const { data: existingTicket } = await ticketQuery
+      .order("created_at", { ascending: false })
       .maybeSingle();
 
     let ticketId: string;

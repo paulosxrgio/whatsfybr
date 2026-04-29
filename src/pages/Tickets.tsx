@@ -462,16 +462,26 @@ const TicketsPage = () => {
   const handleSend = async () => {
     if (!newMessage.trim() || !selectedTicket || !currentStore) return;
     setSending(true);
+    const messageToSend = newMessage;
     try {
-      const { error } = await supabase.functions.invoke("send-whatsapp-reply", {
-        body: { ticket_id: selectedTicket.id, message: newMessage, store_id: currentStore.id, source: "manual" },
+      const { data, error } = await supabase.functions.invoke("send-whatsapp-reply", {
+        body: { ticket_id: selectedTicket.id, message: messageToSend, store_id: currentStore.id, source: "manual" },
       });
-      if (error) throw error;
+      if (error) {
+        toast.error(`Erro ao enviar: ${error.message || "função indisponível"}`);
+        return;
+      }
+      if (!data?.ok) {
+        toast.error(data?.error || "Falha ao enviar mensagem no WhatsApp");
+        return;
+      }
       setNewMessage("");
-    } catch {
-      toast.error("Erro ao enviar mensagem");
+      toast.success("Mensagem enviada no WhatsApp!");
+    } catch (e: any) {
+      toast.error(`Erro inesperado: ${e?.message || "tente novamente"}`);
+    } finally {
+      setSending(false);
     }
-    setSending(false);
   };
 
   const handleGenerateAiReply = async () => {

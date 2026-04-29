@@ -121,7 +121,15 @@ serve(async (req) => {
           })
           .join("\n") || "";
 
+        console.log(`[SCHEDULER:CTX] ticket=${item.ticket_id} store=${item.store_id} queue_id=${item.id} scheduled_for=${item.scheduled_for} last_outbound=${lastReplyAt} inbound_pendentes=${pendingMessages?.length || 0}`);
         console.log(`Processando ${pendingMessages?.length || 0} mensagens consolidadas para ticket ${item.ticket_id}`);
+
+        // Early-return: se não há mensagens novas para responder, marcar como done e pular
+        if (!pendingMessages || pendingMessages.length === 0) {
+          console.log(`[SCHEDULER] Nenhuma mensagem nova para responder no ticket ${item.ticket_id} — marcando como done`);
+          await supabase.from("auto_reply_queue").update({ status: "done" }).eq("id", item.id);
+          continue;
+        }
 
         // ── DETECTAR PEDIDO DE ATENDENTE HUMANO ──
         const wantsHuman = consolidatedInput.toLowerCase().match(

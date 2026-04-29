@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Copy, CheckCircle, Loader2, Info, Wifi, Activity, Zap, ShoppingBag, Eye, EyeOff } from "lucide-react";
+import { Copy, CheckCircle, Loader2, Info, Wifi, Activity, Zap, ShoppingBag, Eye, EyeOff, RefreshCw } from "lucide-react";
 
 const PasswordInput = ({ value, onChange, placeholder, className }: { value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; placeholder?: string; className?: string }) => {
   const [show, setShow] = useState(false);
@@ -78,6 +78,40 @@ const SettingsPage = () => {
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [verifyingShopify, setVerifyingShopify] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+
+  const handleRetryFailedMessages = async () => {
+    if (!currentStore) return;
+    setRetrying(true);
+    let totalSent = 0;
+    let totalFailed = 0;
+    let totalProcessed = 0;
+    try {
+      let hasMore = true;
+      while (hasMore) {
+        const { data, error } = await supabase.functions.invoke("retry-failed-messages", {
+          body: { store_id: currentStore.id },
+        });
+        if (error) throw error;
+        totalProcessed += data?.total || 0;
+        totalSent += data?.sent || 0;
+        totalFailed += data?.failed || 0;
+        hasMore = !!data?.has_more;
+        if (hasMore) {
+          toast.info(`Lote concluído (${data.sent} enviadas). Continuando…`);
+        }
+      }
+      if (totalProcessed === 0) {
+        toast.success("Nenhuma mensagem com falha encontrada nas últimas 6h. ✅");
+      } else {
+        toast.success(`Reenvio concluído: ${totalSent} enviadas, ${totalFailed} falharam (${totalProcessed} total).`);
+      }
+    } catch (e: any) {
+      toast.error(`Erro ao reenviar: ${e.message || e}`);
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   useEffect(() => {
     if (!currentStore) return;
@@ -384,6 +418,38 @@ const SettingsPage = () => {
               </div>
             </>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <RefreshCw className="h-5 w-5 text-primary" />
+            Recuperação de Mensagens
+          </CardTitle>
+          <CardDescription>
+            Reenvia respostas da Sophia das últimas 6h que não chegaram ao WhatsApp (ex: durante desconexão Z-API). Espaçamento de 10s entre cada para evitar bloqueio do WhatsApp.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button
+            onClick={handleRetryFailedMessages}
+            disabled={retrying || !currentStore}
+            variant="outline"
+            className="w-full"
+          >
+            {retrying ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                Reenviando… (pode levar alguns minutos)
+              </>
+            ) : (
+              <>
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Reenviar mensagens com falha
+              </>
+            )}
+          </Button>
         </CardContent>
       </Card>
 

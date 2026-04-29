@@ -149,17 +149,23 @@ serve(async (req) => {
               headers: zapiHdr,
               body: JSON.stringify({ phone: ticket.customer_phone, message: handoffMessage }),
             });
-            const sendData = await sendRes.json().catch(() => ({}));
 
-            await supabase.from("messages").insert({
-              ticket_id: item.ticket_id,
-              store_id: item.store_id,
-              direction: "outbound",
-              content: handoffMessage,
-              message_type: "text",
-              source: "ai",
-              zapi_message_id: sendData?.messageId || null,
-            });
+            if (!sendRes.ok) {
+              const errBody = await sendRes.text().catch(() => "");
+              console.error(`[HUMAN HANDOFF FAIL] Z-API ${sendRes.status}: ${errBody}`);
+              // NÃO inserir em messages — mensagem não foi entregue
+            } else {
+              const sendData = await sendRes.json().catch(() => ({}));
+              await supabase.from("messages").insert({
+                ticket_id: item.ticket_id,
+                store_id: item.store_id,
+                direction: "outbound",
+                content: handoffMessage,
+                message_type: "text",
+                source: "ai",
+                zapi_message_id: sendData?.zaapId || sendData?.messageId || sendData?.id || null,
+              });
+            }
           } catch (e) {
             console.error("[HUMAN HANDOFF] Erro ao enviar mensagem ao cliente:", e);
           }

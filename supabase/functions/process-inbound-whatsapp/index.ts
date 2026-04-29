@@ -65,9 +65,9 @@ serve(async (req) => {
         const inList = zapiIds.map((id) => `"${id.replace(/"/g, "")}"`).join(",");
         const { data: matchedMessages, error: matchError } = await supabase
           .from("messages")
+          .select("id, ticket_id, source, zapi_message_id, zapi_zaap_id, zapi_id")
           .eq("direction", "outbound")
-          .or(`zapi_message_id.in.(${inList}),zapi_zaap_id.in.(${inList}),zapi_id.in.(${inList})`)
-          .select("id, ticket_id, source, zapi_message_id, zapi_zaap_id, zapi_id");
+          .or(`zapi_message_id.in.(${inList}),zapi_zaap_id.in.(${inList}),zapi_id.in.(${inList})`);
 
         if (matchError) {
           console.error("[DELIVERY CALLBACK MATCH ERROR]", matchError);

@@ -1,6 +1,22 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { sendZapiText } from "../_shared/zapi.ts";
+
+// Helper único: invoca send-whatsapp-reply (única porta de saída para Z-API).
+async function callSendWhatsappReply(args: { ticket_id: string; store_id: string; message: string; source: string }) {
+  const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-whatsapp-reply`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+    },
+    body: JSON.stringify(args),
+  });
+  const text = await res.text();
+  let body: any = {};
+  try { body = JSON.parse(text || "{}"); } catch { body = { raw: text }; }
+  return { http_status: res.status, ...body };
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

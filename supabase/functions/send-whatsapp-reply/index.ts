@@ -43,10 +43,12 @@ serve(async (req) => {
       body: JSON.stringify({ phone: cleanPhone, message }),
     });
 
-    if (!zapiRes.ok) {
-      const errText = await zapiRes.text();
-      console.error("Z-API error:", errText);
-      throw new Error("Z-API send failed");
+    const zapiBody = await zapiRes.json().catch(() => ({} as any));
+    console.log(`[Z-API RESPONSE] status: ${zapiRes.status}, body: ${JSON.stringify(zapiBody)}`);
+
+    if (!zapiRes.ok || zapiBody?.error) {
+      console.error("[Z-API FAIL]", zapiRes.status, zapiBody);
+      throw new Error(`Z-API send failed: ${JSON.stringify(zapiBody)}`);
     }
 
     await supabase.from("messages").insert({
@@ -56,6 +58,7 @@ serve(async (req) => {
       direction: "outbound",
       message_type: "text",
       source: messageSource,
+      zapi_message_id: zapiBody?.zaapId || zapiBody?.messageId || zapiBody?.id || null,
     });
 
     await supabase.from("tickets").update({ last_message_at: new Date().toISOString() }).eq("id", ticket_id);

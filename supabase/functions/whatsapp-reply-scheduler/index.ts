@@ -144,10 +144,11 @@ serve(async (req) => {
           };
 
           try {
+            const cleanHandoffPhone = ticket.customer_phone.replace(/\D/g, "");
             const sendRes = await fetch(`${zapiBase}/send-text`, {
               method: "POST",
               headers: zapiHdr,
-              body: JSON.stringify({ phone: ticket.customer_phone, message: handoffMessage }),
+              body: JSON.stringify({ phone: cleanHandoffPhone, message: handoffMessage }),
             });
 
             if (!sendRes.ok) {
@@ -1172,9 +1173,12 @@ ${sentimentInstruction}
         });
 
         let sentZapiId: string | null = null;
-        if (!sendRes.ok) {
-          const errText = await sendRes.text().catch(() => "");
-          console.error(`[Z-API SEND FAIL] ticket ${item.ticket_id} HTTP ${sendRes.status}: ${errText}`);
+        let sendBody: any = {};
+        try { sendBody = await sendRes.clone().json(); } catch (_) { /* ignore */ }
+        console.log(`[Z-API MAIN] status: ${sendRes.status}, zaapId: ${sendBody?.zaapId}, error: ${sendBody?.error}`);
+
+        if (!sendRes.ok || sendBody?.error) {
+          console.error(`[Z-API FAIL] ${sendRes.status}:`, sendBody);
           // Stop typing
           await fetch(`${zapiBaseUrl}/send-chat-state`, {
             method: "POST", headers: zapiHeaders,
@@ -1189,10 +1193,7 @@ ${sentimentInstruction}
           continue;
         }
 
-        try {
-          const sendData = await sendRes.json();
-          sentZapiId = sendData?.messageId || sendData?.id || null;
-        } catch (_) { /* ignore */ }
+        sentZapiId = sendBody?.zaapId || sendBody?.messageId || sendBody?.id || null;
 
         // Stop typing indicator
         await fetch(`${zapiBaseUrl}/send-chat-state`, {

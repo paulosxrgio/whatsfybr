@@ -53,6 +53,7 @@ type Message = {
   message_type: string | null;
   media_url: string | null;
   created_at: string | null;
+  zapi_message_id?: string | null;
 };
 
 type CustomerMemory = {
@@ -344,8 +345,14 @@ const TicketsPage = () => {
 
     const channel = supabase
       .channel("messages-realtime")
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `ticket_id=eq.${selectedTicket.id}` }, (payload) => {
-        setMessages((prev) => [...prev, payload.new as Message]);
+      .on("postgres_changes", { event: "*", schema: "public", table: "messages", filter: `ticket_id=eq.${selectedTicket.id}` }, (payload) => {
+        if (payload.eventType === "INSERT") {
+          setMessages((prev) => [...prev, payload.new as Message]);
+          return;
+        }
+        if (payload.eventType === "UPDATE") {
+          setMessages((prev) => prev.map((msg) => msg.id === (payload.new as Message).id ? payload.new as Message : msg));
+        }
       })
       .subscribe();
 
